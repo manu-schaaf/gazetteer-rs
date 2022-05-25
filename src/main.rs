@@ -1,6 +1,43 @@
 use std::collections::VecDeque;
+use std::fs::File;
+use std::io::{self, BufRead};
+use std::path::Path;
 
 fn main() {
+    let mut tree = StringTree::new("", "".parse().unwrap());
+    if let Ok(lines) = read_lines("data/taxa.txt") {
+        for (i, line) in lines.enumerate() {
+            let line = line.unwrap();
+            if line.trim().len() == 0 {
+                continue
+            }
+            let split = line.split('\t').collect::<Vec<&str>>();
+            let s = String::from(split[0]);
+            let uri = String::from(split[1]);
+            let v: VecDeque<&str> = s.split(' ').collect::<VecDeque<&str>>();
+            tree.insert(v, uri);
+            if i % 1000 == 0{
+                println!("{}", i)
+            }
+        }
+        println!("{:?}", tree.traverse(String::from("Luscinia megarhynchos golzii abc abc").split(' ').collect::<VecDeque<&str>>()));
+    }
+}
+
+// The output is wrapped in a Result to allow matching on errors
+// Returns an Iterator to the Reader of the lines of the file.
+fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
+    where P: AsRef<Path>, {
+    let file = File::open(filename)?;
+    Ok(io::BufReader::new(file).lines())
+}
+
+#[test]
+fn test_file() {
+}
+
+#[test]
+fn test() {
     let mut tree = StringTree::new("", "".parse().unwrap());
     for (s, uri) in vec![("An example phrase", "uri:phrase"), ("An example", "uri:example")] {
         let s = String::from(s);

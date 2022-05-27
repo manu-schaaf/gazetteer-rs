@@ -5,7 +5,9 @@ use std::io::BufRead;
 use std::path::Path;
 
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
+use itertools::{EitherOrBoth, merge_join_by};
 use ngrams::Ngrams;
+use rayon::prelude::*;
 use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy};
 use walkdir::WalkDir;
 
@@ -34,12 +36,54 @@ pub fn load(root_path: String) -> StringTree {
     let mut tree = StringTree::root();
     let files = get_files(root_path);
     for file in files {
-        process_file(file, &mut tree)
+        process_file(file, &mut tree);
     }
     tree
 }
 
-fn process_file(file: String, tree: &mut StringTree) {
+pub fn load_parallel(root_path: String) -> Vec<StringTree> {
+    let files = get_files(root_path);
+    let trees = files.par_iter().map(
+        |file| load_file(String::from(file))
+    ).collect::<Vec<StringTree>>();
+    // let mut trees = VecDeque::from(trees);
+    // let mut tree = trees.pop_front().unwrap();
+    // for other in trees {
+    //     tree.join(&other);
+    // }
+    // tree
+    trees
+}
+
+fn load_file(file: String) -> StringTree {
+    let mut tree = StringTree::root();
+    println!("{}", file);
+    if let Ok(lines) = read_lines(Path::new(file.as_str())) {
+        let lines = lines.into_iter().collect::<Vec<_>>();
+        let pb = ProgressBar::new(lines.len() as u64);
+        pb.set_style(ProgressStyle::default_bar()
+            .template(&format!(
+                "Loading {} [{{elapsed_precise}}] {{bar:40}} {{pos}}/{{len}} {{msg}}", file
+            )).unwrap()
+        );
+        for line in lines {
+            if let Ok(line) = line {
+                let line = line.to_lowercase();
+                if line.trim().len() > 0 {
+                    let split = line.split('\t').collect::<Vec<&str>>();
+                    let taxon_name = split[0].split(' ').collect::<Vec<&str>>();
+                    let uri = split[1].to_string();
+                    tree.insert(VecDeque::from(taxon_name), uri);
+                }
+            }
+            pb.inc(1);
+        }
+        pb.finish_with_message("done");
+    }
+    tree
+}
+
+fn process_file(file: String, tree: &mut StringTree) -> &mut StringTree {
     println!("{}", file);
     if let Ok(lines) = read_lines(Path::new(file.as_str())) {
         let lines = lines.into_iter().collect::<Vec<_>>();
@@ -61,6 +105,7 @@ fn process_file(file: String, tree: &mut StringTree) {
         }
         pb.finish_with_message("done");
     }
+    tree
 }
 
 pub fn load_symspell(root_path: String, additional_dictionary: &str) -> (StringTree, SymSpell<UnicodeiStringStrategy>) {

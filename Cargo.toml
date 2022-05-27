@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 counter = "0.5.5"
 indicatif = "0.17.0-rc.11"
+itertools = "0.10.3"
 linecount = "0.1.0"
 ngrams = "1.0.1"
 rayon = "1.5.3"

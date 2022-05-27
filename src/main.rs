@@ -12,7 +12,6 @@ use indicatif::ProgressBar;
 use ngrams::Ngrams;
 use rocket::{Build, Rocket, State};
 use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy, Verbosity};
-use walkdir::{DirEntry, WalkDir};
 
 use tree::StringTree;
 
@@ -60,14 +59,15 @@ struct SpellingEngine {
 // }
 
 fn main() {
-    let (tree, symspell) = util::load_symspell("resources/taxa/Lichen/".to_string(), "resources/de-100k.txt");
-    let string = String::from("Lyronna dolichobellum abc abc").to_lowercase();
-    println!("{:?}", tree.traverse(string.clone().split(' ').collect::<VecDeque<&str>>()));
-    let results = symspell.lookup_compound(string.as_str(), 2);
-    if results.len() > 0 {
-        println!("{}", results[0].term);
-        println!("{:?}", tree.traverse(results[0].term.split(' ').collect::<VecDeque<&str>>()));
-    }
+    println!("Hello World")
+    // let (tree, symspell) = util::load_symspell("resources/taxa/Lichen/".to_string(), "resources/de-100k.txt");
+    // let string = String::from("Lyronna dolichobellum abc abc").to_lowercase();
+    // println!("{:?}", tree.traverse(string.clone().split(' ').collect::<VecDeque<&str>>()));
+    // let results = symspell.lookup_compound(string.as_str(), 2);
+    // if results.len() > 0 {
+    //     println!("{}", results[0].term);
+    //     println!("{:?}", tree.traverse(results[0].term.split(' ').collect::<VecDeque<&str>>()));
+    // }
 }
 
 #[test]

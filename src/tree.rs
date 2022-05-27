@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io;
 use std::io::BufRead;
+use std::iter::Zip;
 use std::path::Path;
 
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
@@ -9,6 +10,7 @@ use ngrams::Ngrams;
 use rayon::prelude::*;
 use rocket::form::validate::len;
 use rocket::futures::StreamExt;
+use rocket::http::ext::IntoCollection;
 use rocket::State;
 use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy, Verbosity};
 use walkdir::{DirEntry, WalkDir};
@@ -124,24 +126,52 @@ fn test_sample() {
     println!("{:?}", tree.traverse(String::from("An example phrase").split(' ').collect::<VecDeque<&str>>()));
 }
 
+fn addr_of(s: &str) -> usize {
+    s.as_ptr() as usize
+}
+
+fn split_with_indices(s: &str) -> (Vec<(usize, usize)>, Vec<&str>) {
+    let indices = s.match_indices(&[' ', ',', '.', ':', ':', '"', '(', ')']).collect::<Vec<_>>();
+
+    let mut last = 0;
+    let mut offsets: Vec<((usize, usize))> = Vec::new();
+    let mut slices: Vec<(&str)> = Vec::new();
+    for (idx, mtch) in indices {
+        let slice = &s[last..idx];
+        offsets.push((last.clone(), last + slice.len()));
+        slices.push(slice);
+        last = idx + mtch.len();
+    }
+
+    (offsets, slices)
+}
+
 #[test]
 fn test_small_taxa() {
     let max_len = 5;
-    let tree = load("resources/taxa.txt".to_string());
+    let tree = load("resources/taxa/".to_string());
 
     println!("Loading test file..");
     let text = read_lines("resources/216578.txt").unwrap()
         .map(|line| line.unwrap().trim().to_string())
         .collect::<Vec<String>>()
         .join(" ");
-    let text = text.split(" ")
-        .collect::<Vec<&str>>();
+    let (offsets, slices) = split_with_indices(&text);
 
     println!("Iterating over all words..");
-    text.par_windows(max_len)
+    let results: Vec<Result<Vec<_>, _>> = slices.par_windows(max_len)
         .map(|slice| tree.traverse(VecDeque::from(slice.to_vec())))
-        .filter(Result::is_ok)
-        .for_each(|el| println!("{:?}", el));
+        .collect();
+
+    offsets.windows(max_len).into_iter().zip(results.into_iter()).for_each(
+        |(offsets, results)| if let Ok(results) = results {
+            let start = offsets[0].0;
+            for result in results {
+                let end = offsets[result.1.len() - 1].1;
+                println!("{:?} ({},{}) -> {:}", result.1.join(" "), start, end, result.0)
+            }
+        }
+    )
     // {
     //     if let Ok(result) = tree.traverse(VecDeque::from(slice.clone())) {
     //         println!("Default: '{}' -> {:?}", slice.clone().join(" "), result);

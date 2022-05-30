@@ -5,6 +5,7 @@ use std::io;
 use std::io::BufRead;
 use std::iter::Zip;
 use std::mem::take;
+use std::ops::Not;
 use std::path::Path;
 use std::vec::IntoIter;
 
@@ -14,7 +15,7 @@ use ngrams::{Ngram, Ngrams};
 use rayon::iter::Map;
 use rayon::prelude::*;
 use rayon::slice::Iter;
-use rocket::form::validate::{len, Len};
+use rocket::form::validate::{Contains, len, Len};
 use rocket::futures::{AsyncReadExt, StreamExt};
 use rocket::http::ext::IntoCollection;
 use rocket::State;
@@ -38,7 +39,7 @@ pub struct StringTree {
     pub children: Vec<StringTree>,
 }
 
-fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>) -> Vec<(String, String)> {
+fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
     files.par_iter()
         .map(|file| {
             let lines = read_lines(file);
@@ -52,10 +53,16 @@ fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>) -> Vec<(String, S
         .filter(|line| line.len() > 0)
         .map(|line| {
             let split = line.split('\t').collect::<Vec<&str>>();
-            // let taxon = split[0].split(' ').collect::<Vec<&str>>();
             let taxon = String::from(split[0]);
             let uri = String::from(split[1]);
             (taxon, uri)
+        })
+        .filter(|(taxon, _)| {
+            if let Some(filter_list) = filter_list {
+                filter_list.binary_search(&taxon.to_lowercase()).is_err()
+            } else {
+                true
+            }
         })
         .collect::<Vec<(String, String)>>()
 }
@@ -76,20 +83,20 @@ impl SearchTree for StringTree {
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::default_bar()
             .template(&format!(
-                "Loading Input Files [{{duration_precise}}] {{bar:40}} {{pos}}/{{len}} {{msg}}"
+                "Loading Input Files {{bar:40}} {{pos}}/{{len}} {{msg}}"
             )).unwrap()
         );
-        let mut lines = parse_files(files, Option::from(&pb));
+        let mut lines = parse_files(files, Option::from(&pb), None);
         lines.sort();
         let lines = lines;
 
         let pb = ProgressBar::new(lines.len() as u64);
         pb.set_style(ProgressStyle::default_bar()
             .template(&format!(
-                "Building Tree [{{duration_precise}}] {{bar:40}} {{pos}}/{{len}} {{msg}}"
+                "Building Tree {{bar:40}} {{pos}}/{{len}} {{msg}}"
             )).unwrap()
         );
-        root._load_file(lines, Option::from(&pb));
+        root._load_lines_in_order(lines, Option::from(&pb));
 
         root
     }
@@ -226,7 +233,7 @@ impl StringTree {
         // }
     }
 
-    fn _load_file(&mut self, mut lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
+    fn _load_lines(&mut self, mut lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
             self.insert(VecDeque::from(taxon_name.split(' ').collect::<Vec<_>>()), String::from(uri));
 
@@ -236,7 +243,7 @@ impl StringTree {
         }
     }
 
-    fn _load_file_in_order(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
+    fn _load_lines_in_order(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
             self.insert_in_order(VecDeque::from(taxon_name.split(' ').collect::<Vec<_>>()), String::from(uri));
 
@@ -311,7 +318,7 @@ impl SearchTree for MultiTree {
 }
 
 impl MultiTree {
-    fn load_balanced(root_path: &str, each_size: i32, generate_additional: bool, filter_list: Option<Vec<String>>) -> Self {
+    fn load_balanced(root_path: &str, each_size: i32, generate_additional: bool, filter_list: Option<&Vec<String>>) -> Self {
         let mut root = Self {
             value: "<HYPER_ROOT>".to_string(),
             uri: "".to_string(),
@@ -324,18 +331,18 @@ impl MultiTree {
         root
     }
 
-    fn add_balanced(&mut self, root_path: &str, generate_additional: bool, filter_list: Option<Vec<String>>) {
+    fn add_balanced(&mut self, root_path: &str, generate_additional: bool, filter_list: Option<&Vec<String>>) {
         self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, generate_additional, filter_list));
     }
 
-    fn _load_balanced<'data>(root_path: &str, each_size: usize, generate_additional: bool, filter_list: Option<Vec<String>>) -> Vec<StringTree> {
+    fn _load_balanced<'data>(root_path: &str, each_size: usize, generate_additional: bool, filter_list: Option<&Vec<String>>) -> Vec<StringTree> {
         let files: Vec<String> = get_files(root_path);
 
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::with_template(
-            "Loading Input Files [{elapsed_precise}/{duration_precise}] {bar:40} {pos}/{len} {msg}"
+            "Loading Input Files {bar:40} {pos}/{len} {msg}"
         ).unwrap());
-        let mut lines = parse_files(files, Option::from(&pb));
+        let mut lines = parse_files(files, Option::from(&pb), filter_list);
 
         if generate_additional {
             let filtered = lines.par_iter()
@@ -343,20 +350,21 @@ impl MultiTree {
                 .collect::<Vec<&(String, String)>>();
             let pb = ProgressBar::new(filtered.len() as u64);
             pb.set_style(ProgressStyle::with_template(
-                "Generating Additional [{elapsed_precise}/{duration_precise}] {bar:40} {pos}/{len} {msg}"
+                "Generating Additional {bar:40} {pos}/{len} {msg}"
             ).unwrap());
             let mut additional = filtered.par_iter()
                 .map(|(taxon_name, uri)| {
                     let mut result = Vec::new();
 
-                    // let clone = taxon_name.clone();
-                    // let head = clone[0];
-                    // let first_char = head.chars().next().unwrap();
-                    // let abbrv = format!("{:}.", String::from(first_char));
-                    // let mut abbrv = vec![abbrv.as_str()];
-                    // abbrv.extend_from_slice(&clone[1..]);
-                    // let abbrv = Vec::from(abbrv);
-                    // result.push((abbrv, String::from(&uri)));
+                    let string = taxon_name.clone();
+                    let clone = string.split(" ").collect::<Vec<_>>();
+                    let head = String::from(clone[0]);
+                    let first_char = head.chars().next().unwrap();
+                    let abbrv = format!("{:}.", String::from(first_char));
+                    let mut abbrv = vec![abbrv.as_str()];
+                    abbrv.extend_from_slice(&clone[1..]);
+                    let abbrv = abbrv.join(" ");
+                    result.push((abbrv, String::from(uri)));
 
                     let ngrams = taxon_name.split(' ').into_iter()
                         .ngrams(2)
@@ -416,11 +424,11 @@ impl MultiTree {
         let results = tasks.par_iter()
             .map(|(lines, pb)| {
                 let mut tree = StringTree::default();
-                tree._load_file_in_order(Vec::from(*lines), Option::from(pb));
+                tree._load_lines_in_order(Vec::from(*lines), Option::from(pb));
                 pb.finish();
                 tree
             }).collect::<Vec<StringTree>>();
-        return results;
+        results
     }
 }
 
@@ -494,9 +502,12 @@ fn test_big_multi_tree() {
 #[test]
 fn test_big_multi_balanced() {
     // let tree = MultiTree::load_balanced("resources/BIOfid/taxa_*", 500_000);
+    let mut filter_list = read_lines("resources/filter_de.txt");
+    filter_list.sort();
+
     let mut tree = MultiTree::default();
-    tree.add_balanced("resources/taxa/_current/taxon/*.list", true, None);
-    tree.add_balanced("resources/taxa/_current/vernacular/*.list", false, None);
+    tree.add_balanced("resources/taxa/_current/taxon/*.list", true, Option::from(&filter_list));
+    tree.add_balanced("resources/taxa/_current/vernacular/*.list", false, Option::from(&filter_list));
     let tree = tree;
     process_test_file(&tree, Option::from(5));
 }

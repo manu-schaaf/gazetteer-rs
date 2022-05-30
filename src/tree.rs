@@ -363,15 +363,14 @@ impl MultiTree {
                 .map(|(taxon_name, uri)| {
                     let mut result = Vec::new();
 
-                    let clone = taxon_name.clone();
-                    let head = clone[0];
-                    let first_char = head.chars().next().unwrap();
-                    let abbrv = format!("{:}.", String::from(first_char));
-                    let mut abbrv = vec![abbrv.as_str()];
-                    abbrv.extend_from_slice(&clone[1..]);
-                    let abbrv = Vec::from(abbrv);
-
-                    result.push((abbrv, String::from(&uri)));
+                    // let clone = taxon_name.clone();
+                    // let head = clone[0];
+                    // let first_char = head.chars().next().unwrap();
+                    // let abbrv = format!("{:}.", String::from(first_char));
+                    // let mut abbrv = vec![abbrv.as_str()];
+                    // abbrv.extend_from_slice(&clone[1..]);
+                    // let abbrv = Vec::from(abbrv);
+                    // result.push((abbrv, String::from(&uri)));
 
                     let ngrams = taxon_name.into_iter().ngrams(2).pad().collect::<Vec<Vec<&str>>>();
                     for ngram in ngrams {

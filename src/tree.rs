@@ -15,7 +15,7 @@ use rayon::iter::Map;
 use rayon::prelude::*;
 use rayon::slice::Iter;
 use rocket::form::validate::{len, Len};
-use rocket::futures::StreamExt;
+use rocket::futures::{AsyncReadExt, StreamExt};
 use rocket::http::ext::IntoCollection;
 use rocket::State;
 use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy, Verbosity};
@@ -38,6 +38,28 @@ pub struct StringTree {
     pub children: Vec<StringTree>,
 }
 
+fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>) -> Vec<(String, String)> {
+    files.par_iter()
+        .map(|file| {
+            let lines = read_lines(file);
+            if let Some(pb) = pb {
+                pb.inc(1);
+            }
+            lines
+        })
+        .flatten()
+        .map(|line| line.trim().to_string())
+        .filter(|line| line.len() > 0)
+        .map(|line| {
+            let split = line.split('\t').collect::<Vec<&str>>();
+            // let taxon = split[0].split(' ').collect::<Vec<&str>>();
+            let taxon = String::from(split[0]);
+            let uri = String::from(split[1]);
+            (taxon, uri)
+        })
+        .collect::<Vec<(String, String)>>()
+}
+
 impl SearchTree for StringTree {
     fn default() -> Self {
         Self {
@@ -51,17 +73,22 @@ impl SearchTree for StringTree {
         let mut root = Self::default();
         let files: Vec<String> = get_files(root_path);
 
-        for file in files {
-            let lines = read_lines(file.clone());
-            let pb = ProgressBar::new(lines.len() as u64);
-            pb.set_style(ProgressStyle::default_bar()
-                .template(&format!(
-                    "Loading {} [{{duration_precise}}] {{bar:40}} {{pos}}/{{len}} {{msg}}", file
-                )).unwrap()
-            );
-            root._load_file(&lines, Some(&pb));
-            pb.finish_with_message("Done");
-        }
+        let pb = ProgressBar::new(files.len() as u64);
+        pb.set_style(ProgressStyle::default_bar()
+            .template(&format!(
+                "Loading Files [{{duration_precise}}] {{bar:40}} {{pos}}/{{len}} {{msg}}"
+            )).unwrap()
+        );
+        let lines = parse_files(files, Option::from(&pb));
+
+        let pb = ProgressBar::new(lines.len() as u64);
+        pb.set_style(ProgressStyle::default_bar()
+            .template(&format!(
+                "Building Tree [{{duration_precise}}] {{bar:40}} {{pos}}/{{len}} {{msg}}"
+            )).unwrap()
+        );
+        root._load_file(lines, Option::from(&pb));
+
         root
     }
 
@@ -197,33 +224,20 @@ impl StringTree {
         // }
     }
 
-    fn _load_file(&mut self, mut lines: &Vec<String>, pb: Option<&ProgressBar>) {
-        for line in lines {
-            if line.trim().len() > 0 {
-                let line = line.trim().to_lowercase();
-                let split = line.split('\t').collect::<Vec<&str>>();
-                let taxon_name = split[0].split(' ').collect::<Vec<&str>>();
-                let uri = split[1].to_string();
-                self.insert(VecDeque::from(taxon_name), uri);
-            }
+    fn _load_file(&mut self, mut lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
+        for (taxon_name, uri) in lines {
+            self.insert(VecDeque::from(taxon_name.split(' ').collect::<Vec<_>>()), String::from(uri));
+
             if let Some(pb) = pb {
                 pb.inc(1)
             }
         }
     }
 
-    fn _load_file_in_order(&mut self, lines: &Vec<String>, pb: Option<&ProgressBar>) {
-        for line in lines {
-            if line.trim().len() > 0 {
-                let line = line.trim().to_lowercase().to_string();
-                let split = line.split('\t').collect::<Vec<&str>>();
-                if split.len() < 2 {
-                    continue;
-                }
-                let taxon_name = split[0].trim().split(' ').collect::<Vec<&str>>();
-                let uri = split[1].to_string();
-                self.insert_in_order(VecDeque::from(taxon_name), String::from(&uri));
-            }
+    fn _load_file_in_order(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
+        for (taxon_name, uri) in lines {
+            self.insert_in_order(VecDeque::from(taxon_name.split(' ').collect::<Vec<_>>()), String::from(uri));
+
             if let Some(pb) = pb {
                 pb.inc(1)
             }
@@ -277,25 +291,7 @@ impl SearchTree for MultiTree {
 
     fn load(root_path: &str) -> Self {
         let mut root = Self::default();
-        let files: Vec<String> = get_files(root_path);
-
-        let mp = MultiProgress::new();
-        let mut tasks = Vec::new();
-        for file in &files {
-            let lines = read_lines(file);
-            let pb = mp.add(ProgressBar::new(lines.len() as u64));
-            pb.set_style(ProgressStyle::with_template(&format!(
-                "Loading {} [{{elapsed_precise}}/{{duration_precise}}] {{bar:40}} {{pos}}/{{len}} {{msg}}", file
-            )).unwrap());
-            tasks.push((lines, pb))
-        }
-
-        tasks.par_iter()
-            .map(|(lines, pb)| {
-                let mut tree = StringTree::default();
-                tree._load_file(lines, Option::from(pb));
-                tree
-            }).collect_into_vec(&mut root.children);
+        root.add_balanced(root_path, false, None);
         root
     }
 
@@ -313,7 +309,7 @@ impl SearchTree for MultiTree {
 }
 
 impl MultiTree {
-    fn load_balanced(root_path: &str, each_size: i32, generate_additional: bool) -> Self {
+    fn load_balanced(root_path: &str, each_size: i32, generate_additional: bool, filter_list: Option<Vec<String>>) -> Self {
         let mut root = Self {
             value: "<HYPER_ROOT>".to_string(),
             uri: "".to_string(),
@@ -321,45 +317,33 @@ impl MultiTree {
             each_size: each_size as usize,
         };
 
-        root.add_balanced(root_path, generate_additional);
+        root.add_balanced(root_path, generate_additional, filter_list);
 
         root
     }
 
-    fn add_balanced(&mut self, root_path: &str, generate_additional: bool) {
-        self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, generate_additional));
+    fn add_balanced(&mut self, root_path: &str, generate_additional: bool, filter_list: Option<Vec<String>>) {
+        self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, generate_additional, filter_list));
     }
 
-    fn _load_balanced<'data>(root_path: &str, each_size: usize, generate_additional: bool) -> Vec<StringTree> {
+    fn _load_balanced<'data>(root_path: &str, each_size: usize, generate_additional: bool, filter_list: Option<Vec<String>>) -> Vec<StringTree> {
         let files: Vec<String> = get_files(root_path);
 
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::with_template(
             "Loading Input Files [{elapsed_precise}/{duration_precise}] {bar:40} {pos}/{len} {msg}"
         ).unwrap());
-        let mut lines = files.par_iter()
-            .map(|file| {
-                let lines = read_lines(file);
-                pb.inc(1);
-                lines
-            })
-            .flatten()
-            .map(|line| line.trim().to_string())
-            .filter(|line| line.len() > 0)
-            .collect::<Vec<String>>();
+        let mut lines = parse_files(files, Option::from(&pb));
 
         if generate_additional {
-            let pb = ProgressBar::new(lines.len() as u64);
+            let filtered = lines.par_iter()
+                .filter(|(taxon_name, _)| taxon_name.split(' ').collect::<Vec<_>>().len() > 2)
+                .collect::<Vec<&(String, String)>>();
+            let pb = ProgressBar::new(filtered.len() as u64);
             pb.set_style(ProgressStyle::with_template(
                 "Generating Additional [{elapsed_precise}/{duration_precise}] {bar:40} {pos}/{len} {msg}"
             ).unwrap());
-            let mut additional = lines.par_iter().map(|line| {
-                let split = line.split('\t').collect::<Vec<&str>>();
-                let taxon = split[0].split(' ').collect::<Vec<&str>>();
-                let uri = String::from(split[1]);
-                (taxon, uri)
-            })
-                .filter(|(taxon_name, _)| taxon_name.len() > 2)
+            let mut additional = filtered.par_iter()
                 .map(|(taxon_name, uri)| {
                     let mut result = Vec::new();
 
@@ -372,19 +356,21 @@ impl MultiTree {
                     // let abbrv = Vec::from(abbrv);
                     // result.push((abbrv, String::from(&uri)));
 
-                    let ngrams = taxon_name.into_iter().ngrams(2).pad().collect::<Vec<Vec<&str>>>();
+                    let ngrams = taxon_name.split(' ').into_iter()
+                        .ngrams(2)
+                        .pad()
+                        .collect::<Vec<Vec<&str>>>();
                     for ngram in ngrams {
                         // Check whether any part is an abbreviation
                         if ngram.iter().all(|el| el.len() > 2) {
-                            result.push((ngram, String::from(&uri)));
+                            result.push((ngram.join(" "), String::from(uri)));
                         }
                     }
                     pb.inc(1);
                     result
                 })
                 .flatten()
-                .map(|(taxon, uri)| vec![taxon.join(" "), uri].join("\t"))
-                .collect::<Vec<String>>();
+                .collect::<Vec<(String, String)>>();
 
             pb.finish_with_message(format!("Adding {} n-grams & abbreviations\n", additional.len()));
             lines.append(&mut additional);
@@ -414,11 +400,11 @@ impl MultiTree {
         }
 
         let mp = MultiProgress::new();
-        let mut tasks: Vec<(&[String], ProgressBar)> = Vec::new();
+        let mut tasks: Vec<(&[(String, String)], ProgressBar)> = Vec::new();
         for (start, end) in start_end {
             let pb = mp.add(ProgressBar::new((end - start) as u64));
             pb.set_style(ProgressStyle::with_template(&format!(
-                "Loading Split {:>3}/{} [{{duration_precise}}] {{bar:40}} {{pos}}/{{len}} {{msg}}",
+                "Loading Split {:>3}/{} {{bar:40}} {{pos}}/{{len}} {{msg}}",
                 end / each_size,
                 lines.len() / each_size
             )).unwrap());
@@ -428,7 +414,7 @@ impl MultiTree {
         let results = tasks.par_iter()
             .map(|(lines, pb)| {
                 let mut tree = StringTree::default();
-                tree._load_file_in_order(&Vec::from(*lines), Option::from(pb));
+                tree._load_file_in_order(Vec::from(*lines), Option::from(pb));
                 pb.finish();
                 tree
             }).collect::<Vec<StringTree>>();
@@ -507,8 +493,8 @@ fn test_big_multi_tree() {
 fn test_big_multi_balanced() {
     // let tree = MultiTree::load_balanced("resources/BIOfid/taxa_*", 500_000);
     let mut tree = MultiTree::default();
-    tree.add_balanced("resources/taxa/_current/taxon/*.list", true);
-    tree.add_balanced("resources/taxa/_current/vernacular/*.list", false);
+    tree.add_balanced("resources/taxa/_current/taxon/*.list", true, None);
+    tree.add_balanced("resources/taxa/_current/vernacular/*.list", false, None);
     let tree = tree;
     process_test_file(&tree, Option::from(5));
 }

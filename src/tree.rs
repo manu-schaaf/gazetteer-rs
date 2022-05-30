@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io;
 use std::io::BufRead;
@@ -31,11 +31,34 @@ pub trait SearchTree: Sync + Send {
     fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(&'a String, Vec<&'a str>)>, String>;
 }
 
+#[derive(Default, Clone)]
+pub struct FilerList {
+    list: HashSet<String>,
+}
+
+impl FilerList {
+    fn default() -> Self {
+        let lines = read_lines("resources/filter_de.txt");
+        let mut set = HashSet::new();
+        for line in lines {
+            set.insert(line);
+        }
+        Self {
+            list: set
+        }
+    }
+
+    fn contains(&self, el: &str) -> bool {
+        self.list.contains(&el.to_lowercase())
+    }
+}
+
 #[derive(Clone)]
 pub struct StringTree {
     pub value: String,
     pub uri: String,
     pub children: Vec<StringTree>,
+    filter_list: FilerList,
 }
 
 #[derive(Clone)]
@@ -44,6 +67,7 @@ pub struct MultiTree {
     pub uri: String,
     pub children: Vec<StringTree>,
     each_size: usize,
+    filter_list: FilerList,
 }
 
 impl SearchTree for StringTree {
@@ -52,6 +76,7 @@ impl SearchTree for StringTree {
             value: "<ROOT>".to_string(),
             uri: "".to_string(),
             children: vec![],
+            filter_list: FilerList::default(),
         }
     }
 
@@ -91,6 +116,7 @@ impl StringTree {
             value,
             uri,
             children: vec![],
+            filter_list: FilerList::default(),
         }
     }
 
@@ -272,6 +298,7 @@ impl SearchTree for MultiTree {
             uri: "".to_string(),
             children: vec![],
             each_size: 500_000,
+            filter_list: FilerList::default(),
         }
     }
 
@@ -319,6 +346,7 @@ impl MultiTree {
             uri: "".to_string(),
             children: vec![],
             each_size: each_size as usize,
+            filter_list: FilerList::default()
         };
 
         root.add_balanced(root_path, generate_additional);
@@ -363,15 +391,14 @@ impl MultiTree {
                 .map(|(taxon_name, uri)| {
                     let mut result = Vec::new();
 
-                    let clone = taxon_name.clone();
-                    let head = clone[0];
-                    let first_char = head.chars().next().unwrap();
-                    let abbrv = format!("{:}.", String::from(first_char));
-                    let mut abbrv = vec![abbrv.as_str()];
-                    abbrv.extend_from_slice(&clone[1..]);
-                    let abbrv = Vec::from(abbrv);
-
-                    result.push((abbrv, String::from(&uri)));
+                    // let clone = taxon_name.clone();
+                    // let head = clone[0];
+                    // let first_char = head.chars().next().unwrap();
+                    // let abbrv = format!("{:}.", String::from(first_char));
+                    // let mut abbrv = vec![abbrv.as_str()];
+                    // abbrv.extend_from_slice(&clone[1..]);
+                    // let abbrv = Vec::from(abbrv);
+                    // result.push((abbrv, String::from(&uri)));
 
                     let ngrams = taxon_name.into_iter().ngrams(2).pad().collect::<Vec<Vec<&str>>>();
                     for ngram in ngrams {

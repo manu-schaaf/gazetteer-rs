@@ -4,6 +4,10 @@
 extern crate rocket;
 extern crate symspell;
 
+#[macro_use]
+extern crate unic_char_range;
+
+
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{self, BufRead};

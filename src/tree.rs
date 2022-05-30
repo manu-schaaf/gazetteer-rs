@@ -20,6 +20,7 @@ use rocket::futures::{AsyncReadExt, StreamExt};
 use rocket::http::ext::IntoCollection;
 use rocket::State;
 use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy, Verbosity};
+use unic_char_range::chars;
 
 use crate::{SpellingEngine, util};
 use crate::util::{get_files, read_lines, split_with_indices};
@@ -37,6 +38,7 @@ pub struct StringTree {
     pub value: String,
     pub uri: String,
     pub children: Vec<StringTree>,
+    abbreviations: Vec<String>,
 }
 
 fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
@@ -73,6 +75,7 @@ impl SearchTree for StringTree {
             value: "<ROOT>".to_string(),
             uri: "".to_string(),
             children: vec![],
+            abbreviations: chars!('a'..='z').iter().map(|c| format!("{}.", c)).collect(),
         }
     }
 
@@ -106,6 +109,19 @@ impl SearchTree for StringTree {
         if vec.len() > 0 {
             Ok(vec)
         } else {
+            if self.abbreviations.contains(values.front().unwrap().to_lowercase()) {
+                let mut values = values;
+                let head_char = values.pop_front().unwrap().chars().next().unwrap().to_string();
+                let vec = self.children.par_iter()
+                    .filter(|child| child.value.chars().next().unwrap().to_string().eq(&head_char))
+                    .map(|child| child._traverse(values.clone(), Vec::new(), Vec::new()))
+                    .flatten()
+                    .collect::<Vec<_>>();
+
+                if vec.len() > 0 {
+                    return Ok(vec);
+                }
+            }
             Err(String::from("No matches found"))
         }
     }
@@ -119,6 +135,7 @@ impl StringTree {
             value,
             uri,
             children: vec![],
+            abbreviations: chars!('a'..='z').iter().map(|c| format!("{}.", c)).collect(),
         }
     }
 

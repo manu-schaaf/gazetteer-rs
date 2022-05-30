@@ -1,3 +1,5 @@
+#![feature(slice_take)]
+#![feature(let_chains)]
 #[macro_use]
 extern crate rocket;
 extern crate symspell;

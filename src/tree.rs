@@ -76,10 +76,12 @@ impl SearchTree for StringTree {
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::default_bar()
             .template(&format!(
-                "Loading Files [{{duration_precise}}] {{bar:40}} {{pos}}/{{len}} {{msg}}"
+                "Loading Input Files [{{duration_precise}}] {{bar:40}} {{pos}}/{{len}} {{msg}}"
             )).unwrap()
         );
-        let lines = parse_files(files, Option::from(&pb));
+        let mut lines = parse_files(files, Option::from(&pb));
+        lines.sort();
+        let lines = lines;
 
         let pb = ProgressBar::new(lines.len() as u64);
         pb.set_style(ProgressStyle::default_bar()
@@ -404,7 +406,7 @@ impl MultiTree {
         for (start, end) in start_end {
             let pb = mp.add(ProgressBar::new((end - start) as u64));
             pb.set_style(ProgressStyle::with_template(&format!(
-                "Loading Split {:>3}/{} {{bar:40}} {{pos}}/{{len}} {{msg}}",
+                "Building Split {:>2}/{} {{bar:40}} {{pos}}/{{len}} {{msg}}",
                 end / each_size,
                 lines.len() / each_size
             )).unwrap());

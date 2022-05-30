@@ -38,14 +38,6 @@ pub struct StringTree {
     pub children: Vec<StringTree>,
 }
 
-#[derive(Clone)]
-pub struct MultiTree {
-    pub value: String,
-    pub uri: String,
-    pub children: Vec<StringTree>,
-    each_size: usize,
-}
-
 impl SearchTree for StringTree {
     fn default() -> Self {
         Self {
@@ -263,6 +255,14 @@ impl StringTree {
             }
         }
     }
+}
+
+#[derive(Clone)]
+pub struct MultiTree {
+    pub value: String,
+    pub uri: String,
+    pub children: Vec<StringTree>,
+    each_size: usize,
 }
 
 impl SearchTree for MultiTree {

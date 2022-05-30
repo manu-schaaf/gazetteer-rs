@@ -300,7 +300,7 @@ impl SearchTree for MultiTree {
 
     fn load(root_path: &str) -> Self {
         let mut root = Self::default();
-        root.add_balanced(root_path, false, None);
+        root.add_balanced(root_path, false, false, None);
         root
     }
 
@@ -318,7 +318,7 @@ impl SearchTree for MultiTree {
 }
 
 impl MultiTree {
-    fn load_balanced(root_path: &str, each_size: i32, generate_additional: bool, filter_list: Option<&Vec<String>>) -> Self {
+    fn load_balanced(root_path: &str, each_size: i32, generate_abbrv: bool, generate_ngrams: bool, filter_list: Option<&Vec<String>>) -> Self {
         let mut root = Self {
             value: "<HYPER_ROOT>".to_string(),
             uri: "".to_string(),
@@ -326,16 +326,16 @@ impl MultiTree {
             each_size: each_size as usize,
         };
 
-        root.add_balanced(root_path, generate_additional, filter_list);
+        root.add_balanced(root_path, generate_ngrams, generate_abbrv, filter_list);
 
         root
     }
 
-    fn add_balanced(&mut self, root_path: &str, generate_additional: bool, filter_list: Option<&Vec<String>>) {
-        self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, generate_additional, filter_list));
+    fn add_balanced(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
+        self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, generate_ngrams, generate_abbrv, filter_list));
     }
 
-    fn _load_balanced<'data>(root_path: &str, each_size: usize, generate_additional: bool, filter_list: Option<&Vec<String>>) -> Vec<StringTree> {
+    fn _load_balanced<'data>(root_path: &str, each_size: usize, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) -> Vec<StringTree> {
         let files: Vec<String> = get_files(root_path);
 
         let pb = ProgressBar::new(files.len() as u64);
@@ -344,28 +344,18 @@ impl MultiTree {
         ).unwrap());
         let mut lines = parse_files(files, Option::from(&pb), filter_list);
 
-        if generate_additional {
+        let mut additional = Vec::new();
+        if generate_ngrams {
             let filtered = lines.par_iter()
-                .filter(|(taxon_name, _)| taxon_name.split(' ').collect::<Vec<_>>().len() > 2)
+                .filter(|(taxon_name, _)| taxon_name.split(" ").collect::<Vec<_>>().len() > 2)
                 .collect::<Vec<&(String, String)>>();
             let pb = ProgressBar::new(filtered.len() as u64);
             pb.set_style(ProgressStyle::with_template(
-                "Generating Additional {bar:40} {pos}/{len} {msg}"
+                "Generating N-Grams {bar:40} {pos}/{len} {msg}"
             ).unwrap());
-            let mut additional = filtered.par_iter()
+            let mut ngrams = filtered.par_iter()
                 .map(|(taxon_name, uri)| {
                     let mut result = Vec::new();
-
-                    let string = taxon_name.clone();
-                    let clone = string.split(" ").collect::<Vec<_>>();
-                    let head = String::from(clone[0]);
-                    let first_char = head.chars().next().unwrap();
-                    let abbrv = format!("{:}.", String::from(first_char));
-                    let mut abbrv = vec![abbrv.as_str()];
-                    abbrv.extend_from_slice(&clone[1..]);
-                    let abbrv = abbrv.join(" ");
-                    result.push((abbrv, String::from(uri)));
-
                     let ngrams = taxon_name.split(' ').into_iter()
                         .ngrams(2)
                         .pad()
@@ -382,9 +372,42 @@ impl MultiTree {
                 .flatten()
                 .collect::<Vec<(String, String)>>();
 
-            pb.finish_with_message(format!("Adding {} n-grams & abbreviations\n", additional.len()));
-            lines.append(&mut additional);
+            pb.finish_with_message(format!("Adding {} n-grams & abbreviations\n", ngrams.len()));
+            additional.append(&mut ngrams);
         }
+
+        if generate_abbrv {
+            let filtered = lines.par_iter()
+                .filter(|(taxon_name, _)| taxon_name.split(" ").collect::<Vec<_>>().len() > 1)
+                .collect::<Vec<&(String, String)>>();
+            let pb = ProgressBar::new(filtered.len() as u64);
+            pb.set_style(ProgressStyle::with_template(
+                "Generating Abbreviations {bar:40} {pos}/{len} {msg}"
+            ).unwrap());
+            let mut abbrevations = filtered.par_iter()
+                .map(|(taxon_name, uri)| {
+                    let mut result = Vec::new();
+
+                    let string = taxon_name.clone();
+                    let clone = string.split(" ").collect::<Vec<_>>();
+                    let head = String::from(clone[0]);
+                    let first_char = head.chars().next().unwrap();
+                    let abbrv = format!("{:}.", String::from(first_char));
+                    let mut abbrv = vec![abbrv.as_str()];
+                    abbrv.extend_from_slice(&clone[1..]);
+                    let abbrv = abbrv.join(" ");
+                    result.push((abbrv, String::from(uri)));
+
+                    pb.inc(1);
+                    result
+                })
+                .flatten()
+                .collect::<Vec<(String, String)>>();
+
+            pb.finish_with_message(format!("Adding {} abbreviations\n", abbrevations.len()));
+            additional.append(&mut abbrevations);
+        }
+        lines.append(&mut additional);
 
         let pb = ProgressBar::new_spinner();
         pb.set_style(
@@ -506,8 +529,8 @@ fn test_big_multi_balanced() {
     filter_list.sort();
 
     let mut tree = MultiTree::default();
-    tree.add_balanced("resources/taxa/_current/taxon/*.list", true, Option::from(&filter_list));
-    tree.add_balanced("resources/taxa/_current/vernacular/*.list", false, Option::from(&filter_list));
+    tree.add_balanced("resources/taxa/_current/taxon/*.list", true, true, Option::from(&filter_list));
+    tree.add_balanced("resources/taxa/_current/vernacular/*.list", false, false, Option::from(&filter_list));
     let tree = tree;
     process_test_file(&tree, Option::from(5));
 }

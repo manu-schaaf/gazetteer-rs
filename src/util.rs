@@ -11,8 +11,6 @@ use ngrams::Ngrams;
 use rayon::prelude::*;
 use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy};
 
-use crate::StringTree;
-
 pub fn read_lines<P>(filename: P) -> Vec<String>
     where P: AsRef<Path>, {
     let file = File::open(filename).expect("Could not open file");
@@ -32,8 +30,10 @@ pub fn get_files(root_path: &str) -> Vec<String> {
     files
 }
 
+pub const SPLIT_PATTERN: &[char; 9] = &[' ', ',', ':', ';', '-', '_', '"', '(', ')'];
+
 pub fn split_with_indices(s: &str) -> (Vec<(usize, usize)>, Vec<&str>) {
-    let indices = s.match_indices(&[' ', ',', '.', ':', ':', '"', '(', ')']).collect::<Vec<_>>();
+    let indices = s.match_indices(SPLIT_PATTERN).collect::<Vec<_>>();
 
     let mut last = 0;
     let mut offsets: Vec<((usize, usize))> = Vec::new();

@@ -1,5 +1,3 @@
-#![feature(slice_take)]
-#![feature(let_chains)]
 #[macro_use]
 extern crate rocket;
 extern crate symspell;
@@ -14,11 +12,7 @@ use indicatif::ProgressBar;
 use ngrams::Ngrams;
 use rocket::{Build, Rocket, State};
 use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy, Verbosity};
-
-use tree::StringTree;
-
-mod tree;
-mod util;
+use gazetteer::tree::StringTree;
 
 struct SearchTree {
     tree: StringTree,

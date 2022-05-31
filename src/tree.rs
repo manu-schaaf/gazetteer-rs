@@ -10,19 +10,22 @@ use std::path::Path;
 use std::vec::IntoIter;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
-use itertools::{EitherOrBoth, merge_join_by};
+use itertools::{Itertools, max, merge_join_by};
 use ngrams::{Ngram, Ngrams};
 use rayon::iter::Map;
 use rayon::prelude::*;
 use rayon::slice::Iter;
-use rocket::form::validate::{Contains, len, Len};
-use rocket::futures::{AsyncReadExt, StreamExt};
-use rocket::http::ext::IntoCollection;
-use rocket::State;
+use rocket::futures::StreamExt;
 use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy, Verbosity};
 
-use crate::{SpellingEngine, util};
-use crate::util::{get_files, read_lines, split_with_indices};
+use crate::util;
+use crate::util::{get_files, read_lines, SPLIT_PATTERN, split_with_indices};
+
+pub enum ResultSelection {
+    All,
+    Last,
+    Longest,
+}
 
 pub trait SearchTree: Sync + Send {
     fn default() -> Self
@@ -30,6 +33,52 @@ pub trait SearchTree: Sync + Send {
     fn load(root_path: &str) -> Self
         where Self: Sized;
     fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(&'a String, Vec<&'a str>)>, String>;
+
+    fn search(&self, text: &String, max_len: Option<usize>, result_selection: Option<ResultSelection>) -> Vec<(String, String, (usize, usize))> {
+        let result_selection = result_selection.unwrap_or(ResultSelection::Longest);
+        let max_len = max_len.unwrap_or(5 as usize);
+
+        let (offsets, slices) = split_with_indices(text);
+
+        let results = slices
+            .par_windows(max_len)
+            .map(|slice| self.traverse(VecDeque::from(slice.to_vec())))
+            .zip(offsets.par_windows(max_len))
+            .filter_map(|(result, offsets)| if let Ok(result) = result { Some((result, offsets)) } else { None })
+            .filter_map(|(result, offsets)| if !result.is_empty() { Some((result, offsets)) } else { None })
+            .map(|(results, offsets)| {
+                let start = offsets[0].0;
+                match result_selection {
+                    ResultSelection::All => {
+                        let mut returns = Vec::new();
+                        for result in results {
+                            let end = offsets[result.1.len() - 1].1;
+                            returns.push((result.1.join(" "), String::from(result.0), (start, end)));
+                        }
+                        returns
+                    }
+                    ResultSelection::Last => {
+                        let result = results.last().unwrap();
+                        let end = offsets[result.1.len() - 1].1;
+                        vec![(result.1.join(" "), String::from(result.0), (start, end))]
+                    }
+                    ResultSelection::Longest => {
+                        let mut result = (&String::from(""), Vec::new());
+                        for t in results {
+                            if t.1.len() > result.1.len() {
+                                result = t;
+                            }
+                        }
+                        let end = offsets[result.1.len() - 1].1;
+                        vec![(result.1.join(" "), String::from(result.0), (start, end))]
+                    }
+                }
+            })
+            .flatten()
+            .collect::<Vec<(String, String, (usize, usize))>>();
+
+        results
+    }
 }
 
 #[derive(Clone)]
@@ -87,7 +136,7 @@ impl SearchTree for StringTree {
             )).unwrap()
         );
         let mut lines = parse_files(files, Option::from(&pb), None);
-        lines.sort();
+        lines.sort_unstable();
         let lines = lines;
 
         let pb = ProgressBar::new(lines.len() as u64);
@@ -235,7 +284,7 @@ impl StringTree {
 
     fn _load_lines(&mut self, mut lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
-            self.insert(VecDeque::from(taxon_name.split(' ').collect::<Vec<_>>()), String::from(uri));
+            self.insert(VecDeque::from(taxon_name.split(SPLIT_PATTERN).collect::<Vec<_>>()), String::from(uri));
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -245,7 +294,7 @@ impl StringTree {
 
     fn _load_lines_in_order(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
-            self.insert_in_order(VecDeque::from(taxon_name.split(' ').collect::<Vec<_>>()), String::from(uri));
+            self.insert_in_order(VecDeque::from(taxon_name.split(SPLIT_PATTERN).collect::<Vec<_>>()), String::from(uri));
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -318,7 +367,7 @@ impl SearchTree for MultiTree {
 }
 
 impl MultiTree {
-    fn load_balanced(root_path: &str, each_size: i32, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) -> Self {
+    fn from_taxon_list(root_path: &str, each_size: i32, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) -> Self {
         let mut root = Self {
             value: "<HYPER_ROOT>".to_string(),
             uri: "".to_string(),
@@ -335,6 +384,14 @@ impl MultiTree {
         self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, generate_ngrams, generate_abbrv, filter_list));
     }
 
+    fn add_taxon(&mut self, root_path: &str, filter_list: Option<&Vec<String>>) {
+        self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, true, true, filter_list));
+    }
+
+    fn add_vernacular(&mut self, root_path: &str, filter_list: Option<&Vec<String>>) {
+        self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, false, false, filter_list));
+    }
+
     fn _load_balanced<'data>(root_path: &str, each_size: usize, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) -> Vec<StringTree> {
         let files: Vec<String> = get_files(root_path);
 
@@ -347,7 +404,7 @@ impl MultiTree {
         let mut additional = Vec::new();
         if generate_ngrams {
             let filtered = lines.par_iter()
-                .filter(|(taxon_name, _)| taxon_name.split(" ").collect::<Vec<_>>().len() > 2)
+                .filter(|(taxon_name, _)| taxon_name.split(SPLIT_PATTERN).collect::<Vec<_>>().len() > 2)
                 .collect::<Vec<&(String, String)>>();
             let pb = ProgressBar::new(filtered.len() as u64);
             pb.set_style(ProgressStyle::with_template(
@@ -356,7 +413,7 @@ impl MultiTree {
             let mut ngrams = filtered.par_iter()
                 .map(|(taxon_name, uri)| {
                     let mut result = Vec::new();
-                    let ngrams = taxon_name.split(' ').into_iter()
+                    let ngrams = taxon_name.split(SPLIT_PATTERN).into_iter()
                         .ngrams(2)
                         .pad()
                         .collect::<Vec<Vec<&str>>>();
@@ -372,7 +429,7 @@ impl MultiTree {
                 .flatten()
                 .collect::<Vec<(String, String)>>();
 
-            pb.finish_with_message(format!("Adding {} n-grams & abbreviations\n", ngrams.len()));
+            pb.finish_with_message(format!("Adding {} n-grams\n", ngrams.len()));
             additional.append(&mut ngrams);
         }
 
@@ -422,7 +479,7 @@ impl MultiTree {
                 ])
         );
         pb.set_message(format!("Sorting {} lines..", lines.len()));
-        lines.sort();
+        lines.sort_unstable();
         pb.finish();
         let lines = lines;
 
@@ -461,32 +518,14 @@ fn process_test_file(tree: &impl SearchTree, max_len: Option<i32>) {
     println!("Loading test file..");
     let text = read_lines("resources/216578.txt")
         .join(" ");
-    let (offsets, slices) = split_with_indices(&text);
 
-    println!("Iterating over all words..");
-    let results = slices
-        .par_windows(max_len)
-        .map(|slice| tree.traverse(VecDeque::from(slice.to_vec())))
-        .collect::<Vec<Result<Vec<(&String, Vec<&str>)>, String>>>();
-
-    process_test_output(max_len, offsets, results);
+    process_test_output(tree.search(&text, Option::from(max_len), Option::from(ResultSelection::Last)));
 }
 
-fn process_test_output(max_len: usize, offsets: Vec<(usize, usize)>, results: Vec<Result<Vec<(&String, Vec<&str>)>, String>>) {
-    offsets.windows(max_len).into_iter().zip(results.into_iter()).for_each(
-        |(offsets, results): (&[(usize, usize)], Result<Vec<(&String, Vec<&str>)>, _>)| {
-            if let Ok(results) = results {
-                if !results.is_empty() {
-                    let start = offsets[0].0;
-                    let result = results.last().unwrap();
-                    // for result in results {
-                    let end = offsets[result.1.len() - 1].1;
-                    println!("{:?} ({},{}) -> {:}", result.1.join(" "), start, end, result.0)
-                    // };
-                }
-            }
-        }
-    )
+fn process_test_output(results: Vec<(String, String, (usize, usize))>) {
+    for result in results {
+        println!("{:?} ({},{}) -> {:}", result.0, result.2.0, result.2.1, result.1)
+    }
 }
 
 
@@ -526,11 +565,11 @@ fn test_big_multi_tree() {
 fn test_big_multi_balanced() {
     // let tree = MultiTree::load_balanced("resources/BIOfid/taxa_*", 500_000);
     let mut filter_list = read_lines("resources/filter_de.txt");
-    filter_list.sort();
+    filter_list.sort_unstable();
 
     let mut tree = MultiTree::default();
-    tree.add_balanced("resources/taxa/_current/taxon/*.list", true, true, Option::from(&filter_list));
-    tree.add_balanced("resources/taxa/_current/vernacular/*.list", false, false, Option::from(&filter_list));
+    tree.add_taxon("resources/taxa/_current/taxon/*.list", Option::from(&filter_list));
+    tree.add_vernacular("resources/taxa/_current/vernacular/*.list", Option::from(&filter_list));
     let tree = tree;
     process_test_file(&tree, Option::from(5));
 }

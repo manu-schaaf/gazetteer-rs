@@ -12,7 +12,14 @@ use indicatif::ProgressBar;
 use ngrams::Ngrams;
 use rocket::{Build, Rocket, State};
 use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy, Verbosity};
+use tokenizers::normalizers::{NFKC, NFKD};
+use tokenizers::pre_tokenizers::unicode_scripts::UnicodeScripts;
+use tokenizers::{NormalizedString, Normalizer, OffsetReferential, OffsetType, PreTokenizedString, PreTokenizer, SplitDelimiterBehavior};
+use tokenizers::pre_tokenizers::punctuation::Punctuation;
+use tokenizers::pre_tokenizers::whitespace::Whitespace;
+
 use gazetteer::tree::StringTree;
+use gazetteer::util::read_lines;
 
 struct SearchTree {
     tree: StringTree,
@@ -55,15 +62,21 @@ struct SpellingEngine {
 // }
 
 fn main() {
-    println!("Hello World")
-    // let (tree, symspell) = util::load_symspell("resources/taxa/Lichen/".to_string(), "resources/de-100k.txt");
-    // let string = String::from("Lyronna dolichobellum abc abc").to_lowercase();
-    // println!("{:?}", tree.traverse(string.clone().split(' ').collect::<VecDeque<&str>>()));
-    // let results = symspell.lookup_compound(string.as_str(), 2);
-    // if results.len() > 0 {
-    //     println!("{}", results[0].term);
-    //     println!("{:?}", tree.traverse(results[0].term.split(' ').collect::<VecDeque<&str>>()));
-    // }
+
+    let text = read_lines("resources/216578.txt").join(" ");
+    let mut text = PreTokenizedString::from(text);
+
+    let normalizer = NFKC::default();
+    let punctuation = Punctuation::new(SplitDelimiterBehavior::Removed);
+    let whitespace = Whitespace::default();
+
+    text.normalize(|s| normalizer.normalize(s));
+    punctuation.pre_tokenize(&mut text);
+    whitespace.pre_tokenize(&mut text);
+    let vec = text.get_splits(OffsetReferential::Original, OffsetType::Char);
+    for (slice, offsets, optino_token) in vec {
+        println!("{:} ({}, {})", slice, offsets.0, offsets.1);
+    }
 }
 
 #[test]

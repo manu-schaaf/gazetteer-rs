@@ -6,7 +6,7 @@ use itertools::Itertools;
 use ngrams::Ngram;
 use rayon::prelude::*;
 
-use crate::util::{get_files, parse_files, get_spinner, read_lines, split_with_indices};
+use crate::util::{get_files, get_spinner, parse_files, read_lines, Segmenter, split_with_indices};
 
 pub enum ResultSelection {
     All,
@@ -98,6 +98,11 @@ impl SearchTree for StringTree {
         lines.sort_unstable();
         let lines = lines;
 
+        let segmenter = Segmenter::default();
+        let lines = lines.par_iter()
+            .map(|(line, uri)| (segmenter.tokenize(line).0, uri))
+            .collect::<Vec<(Vec<String>, &String)>>();
+
         let pb = ProgressBar::new(lines.len() as u64);
         pb.set_style(ProgressStyle::default_bar()
             .template(&format!(
@@ -143,7 +148,7 @@ impl StringTree {
         &self.value
     }
 
-    fn insert(&mut self, mut values: VecDeque<&str>, uri: String) {
+    fn insert(&mut self, mut values: VecDeque<String>, uri: String) {
         let value = &values.pop_front().unwrap().to_lowercase();
         match self.children.binary_search_by_key(&value, |a| a.get_value()) {
             Ok(idx) => {
@@ -166,7 +171,7 @@ impl StringTree {
         }
     }
 
-    fn insert_in_order(&mut self, mut values: VecDeque<&str>, uri: String) {
+    fn insert_in_order(&mut self, mut values: VecDeque<String>, uri: String) {
         let value = &values.pop_front().unwrap().to_lowercase();
         if let Some(last_child) = self.children.last_mut() && last_child.value.eq(value) {
             if values.is_empty() {
@@ -242,9 +247,9 @@ impl StringTree {
         // }
     }
 
-    fn _load_lines(&mut self, mut lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
+    fn _load_lines(&mut self, mut lines: Vec<(Vec<String>, &String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
-            self.insert(VecDeque::from(split_with_indices(&taxon_name).0), String::from(uri));
+            self.insert(VecDeque::from(taxon_name), String::from(uri));
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -252,9 +257,9 @@ impl StringTree {
         }
     }
 
-    fn _load_lines_in_order(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
+    fn _load_lines_in_order(&mut self, lines: Vec<(Vec<String>, &String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
-            self.insert_in_order(VecDeque::from(split_with_indices(&taxon_name).0), String::from(uri));
+            self.insert_in_order(VecDeque::from(taxon_name), String::from(uri));
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -434,6 +439,21 @@ impl MultiTree {
         pb.finish();
         let lines = lines;
 
+        let pb = ProgressBar::new(lines.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Tokenizing Names {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+        let segmenter = Segmenter::default();
+
+        let lines = lines.par_iter()
+            .map(|(line, uri)| {
+                let tokenized = segmenter.tokenize(line);
+                pb.inc(1);
+                (tokenized.0, uri)
+            })
+            .collect::<Vec<(Vec<String>, &String)>>();
+        pb.finish();
+
         let mut start_end: Vec<(usize, usize)> = Vec::new();
         for start in (0..lines.len()).step_by(each_size) {
             let size = usize::min(start + each_size, lines.len());
@@ -441,7 +461,7 @@ impl MultiTree {
         }
 
         let mp = MultiProgress::new();
-        let mut tasks: Vec<(&[(String, String)], ProgressBar)> = Vec::new();
+        let mut tasks: Vec<(&[(Vec<String>, &String)], ProgressBar)> = Vec::new();
         for (start, end) in start_end {
             let pb = mp.add(ProgressBar::new((end - start) as u64));
             pb.set_style(ProgressStyle::with_template(&format!(
@@ -486,7 +506,7 @@ fn test_sample() {
     for (s, uri) in vec![("An example phrase", "uri:phrase"), ("An example", "uri:example")] {
         let s = String::from(s);
         let uri = String::from(uri);
-        let v: VecDeque<&str> = s.split(' ').collect::<VecDeque<&str>>();
+        let v: VecDeque<String> = s.split(" ").map(String::from).collect::<VecDeque<String>>();
         tree.insert(v, uri);
     }
     println!("{:?}", tree.traverse(String::from("An xyz").split(' ').collect::<VecDeque<&str>>()));

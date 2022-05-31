@@ -30,9 +30,9 @@ pub fn get_files(root_path: &str) -> Vec<String> {
     files
 }
 
-pub const SPLIT_PATTERN: &[char; 9] = &[' ', ',', ':', ';', '-', '_', '"', '(', ')'];
+pub const SPLIT_PATTERN: &[char; 10] = &[' ', '.', ',', ':', ';', '-', '_', '"', '(', ')'];
 
-pub fn split_with_indices(s: &str) -> (Vec<(usize, usize)>, Vec<&str>) {
+pub fn split_with_indices(s: &str) -> (Vec<&str>, Vec<(usize, usize)>) {
     let indices = s.match_indices(SPLIT_PATTERN).collect::<Vec<_>>();
 
     let mut last = 0;
@@ -40,10 +40,35 @@ pub fn split_with_indices(s: &str) -> (Vec<(usize, usize)>, Vec<&str>) {
     let mut slices: Vec<(&str)> = Vec::new();
     for (idx, mtch) in indices {
         let slice = &s[last..idx];
-        offsets.push((last.clone(), last + slice.len()));
-        slices.push(slice);
+        _push_slice(&mut slices, &mut offsets, slice, last, idx);
         last = idx + mtch.len();
     }
+    if last < s.len() {
+        _push_slice(&mut slices, &mut offsets, &s[last..s.len()], last, s.len());
+    }
 
-    (offsets, slices)
+    (slices, offsets)
+}
+
+fn _push_slice<'a>(slices: &mut Vec<&'a str>, offsets: &mut Vec<(usize, usize)>, slice: &'a str, last: usize, idx: usize) {
+    if slice.len() > 1 || slice.len() == 1 && !SPLIT_PATTERN.contains(&slice.chars().next().unwrap()) {
+        offsets.push((last.clone(), idx.clone() + 1));
+        slices.push(slice);
+    }
+}
+
+pub(crate) fn get_spinner() -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{spinner} {msg}")
+            .unwrap()
+            .tick_strings(&[
+                "▹▹▹",
+                "▸▹▹",
+                "▹▸▹",
+                "▹▹▸",
+                "▪▪▪",
+            ])
+    );
+    pb
 }

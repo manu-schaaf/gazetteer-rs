@@ -1,25 +1,12 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
-use std::fs::File;
-use std::io;
-use std::io::BufRead;
-use std::iter::Zip;
-use std::mem::take;
-use std::ops::Not;
-use std::path::Path;
-use std::vec::IntoIter;
+use std::collections::VecDeque;
 
-use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
-use itertools::{Itertools, max, merge_join_by};
-use ngrams::{Ngram, Ngrams};
-use rayon::iter::Map;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use itertools::Itertools;
+use ngrams::Ngram;
 use rayon::prelude::*;
-use rayon::slice::Iter;
-use rocket::futures::StreamExt;
-use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy, Verbosity};
 
-use crate::util;
-use crate::util::{get_files, read_lines, SPLIT_PATTERN, split_with_indices};
+use crate::util::{get_files, get_spinner, read_lines, split_with_indices};
 
 pub enum ResultSelection {
     All,
@@ -32,13 +19,13 @@ pub trait SearchTree: Sync + Send {
         where Self: Sized;
     fn load(root_path: &str) -> Self
         where Self: Sized;
-    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(&'a String, Vec<&'a str>)>, String>;
+    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<String>)>, String>;
 
     fn search(&self, text: &String, max_len: Option<usize>, result_selection: Option<ResultSelection>) -> Vec<(String, String, (usize, usize))> {
         let result_selection = result_selection.unwrap_or(ResultSelection::Longest);
         let max_len = max_len.unwrap_or(5 as usize);
 
-        let (offsets, slices) = split_with_indices(text);
+        let (slices, offsets) = split_with_indices(text);
 
         let results = slices
             .par_windows(max_len)
@@ -52,25 +39,25 @@ pub trait SearchTree: Sync + Send {
                     ResultSelection::All => {
                         let mut returns = Vec::new();
                         for result in results {
-                            let end = offsets[result.1.len() - 1].1;
-                            returns.push((result.1.join(" "), String::from(result.0), (start, end)));
+                            let end = offsets[result.0.len() - 1].1;
+                            returns.push((result.0.join(" "), result.1.join("; "), (start, end)));
                         }
                         returns
                     }
                     ResultSelection::Last => {
                         let result = results.last().unwrap();
-                        let end = offsets[result.1.len() - 1].1;
-                        vec![(result.1.join(" "), String::from(result.0), (start, end))]
+                        let end = offsets[result.0.len() - 1].1;
+                        vec![(result.0.join(" "), result.1.join("; "), (start, end))]
                     }
                     ResultSelection::Longest => {
-                        let mut result = (&String::from(""), Vec::new());
+                        let mut result = (Vec::new(), &Vec::new());
                         for t in results {
-                            if t.1.len() > result.1.len() {
+                            if t.0.len() > result.0.len() {
                                 result = t;
                             }
                         }
-                        let end = offsets[result.1.len() - 1].1;
-                        vec![(result.1.join(" "), String::from(result.0), (start, end))]
+                        let end = offsets[result.0.len() - 1].1;
+                        vec![(result.0.join(" "), result.1.join("; "), (start, end))]
                     }
                 }
             })
@@ -84,7 +71,7 @@ pub trait SearchTree: Sync + Send {
 #[derive(Clone)]
 pub struct StringTree {
     pub value: String,
-    pub uri: String,
+    pub uri: Vec<String>,
     pub children: Vec<StringTree>,
 }
 
@@ -120,7 +107,7 @@ impl SearchTree for StringTree {
     fn default() -> Self {
         Self {
             value: "<ROOT>".to_string(),
-            uri: "".to_string(),
+            uri: vec![],
             children: vec![],
         }
     }
@@ -150,7 +137,7 @@ impl SearchTree for StringTree {
         root
     }
 
-    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(&'a String, Vec<&'a str>)>, String> {
+    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<String>)>, String> {
         let vec = self._traverse(values, Vec::new(), Vec::new());
         if vec.len() > 0 {
             Ok(vec)
@@ -166,7 +153,16 @@ impl StringTree {
         let value = String::from(value);
         Self {
             value,
-            uri,
+            uri: vec![uri],
+            children: vec![],
+        }
+    }
+
+    fn child(value: &str) -> Self {
+        let value = String::from(value);
+        Self {
+            value,
+            uri: vec![],
             children: vec![],
         }
     }
@@ -175,53 +171,45 @@ impl StringTree {
         &self.value
     }
 
-    fn insert(&mut self, mut values: VecDeque<&str>, uri: String) -> bool {
+    fn insert(&mut self, mut values: VecDeque<&str>, uri: String) {
         let value = &values.pop_front().unwrap().to_lowercase();
         match self.children.binary_search_by_key(&value, |a| a.get_value()) {
             Ok(idx) => {
                 if values.is_empty() {
-                    if self.children[idx].uri.is_empty() {
-                        self.children[idx].uri = uri;
-                        true
-                    } else {
-                        false
-                    }
+                    self.children[idx].uri.push(uri);
+                    self.children[idx].uri.sort();
+                    self.children[idx].uri.dedup();
                 } else {
-                    self.children[idx].insert(values, uri)
+                    self.children[idx].insert(values, uri);
                 }
             }
             Err(idx) => {
                 if values.is_empty() {
                     self.children.insert(idx, StringTree::from(value, uri));
-                    true
                 } else {
-                    self.children.insert(idx, StringTree::from(value, String::new()));
-                    self.children[idx].insert(values, uri)
+                    self.children.insert(idx, StringTree::child(value));
+                    self.children[idx].insert(values, uri);
                 }
             }
         }
     }
 
-    fn insert_in_order(&mut self, mut values: VecDeque<&str>, uri: String) -> bool {
+    fn insert_in_order(&mut self, mut values: VecDeque<&str>, uri: String) {
         let value = &values.pop_front().unwrap().to_lowercase();
         if let Some(last_child) = self.children.last_mut() && last_child.value.eq(value) {
             if values.is_empty() {
-                if last_child.uri.is_empty() {
-                    last_child.uri = uri;
-                    true
-                } else {
-                    false
-                }
+                last_child.uri.push(uri);
+                last_child.uri.sort();
+                last_child.uri.dedup();
             } else {
-                last_child.insert_in_order(values, uri)
+                last_child.insert_in_order(values, uri);
             }
         } else {
             if values.is_empty() {
                 self.children.push(StringTree::from(value, uri));
-                true
             } else {
-                self.children.push(StringTree::from(value, String::new()));
-                self.children.last_mut().unwrap().insert_in_order(values, uri)
+                self.children.push(StringTree::child(value));
+                self.children.last_mut().unwrap().insert_in_order(values, uri);
             }
         }
     }
@@ -284,7 +272,7 @@ impl StringTree {
 
     fn _load_lines(&mut self, mut lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
-            self.insert(VecDeque::from(taxon_name.split(SPLIT_PATTERN).collect::<Vec<_>>()), String::from(uri));
+            self.insert(VecDeque::from(split_with_indices(&taxon_name).0), String::from(uri));
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -294,7 +282,7 @@ impl StringTree {
 
     fn _load_lines_in_order(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
-            self.insert_in_order(VecDeque::from(taxon_name.split(SPLIT_PATTERN).collect::<Vec<_>>()), String::from(uri));
+            self.insert_in_order(VecDeque::from(split_with_indices(&taxon_name).0), String::from(uri));
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -306,14 +294,14 @@ impl StringTree {
         &'a self,
         mut values: VecDeque<&'a str>,
         mut matched_string_buffer: Vec<&'a str>,
-        mut results: Vec<(&'a String, Vec<&'a str>)>,
-    ) -> Vec<(&'a String, Vec<&'a str>)> {
+        mut results: Vec<(Vec<&'a str>, &'a Vec<String>)>,
+    ) -> Vec<(Vec<&'a str>, &'a Vec<String>)> {
         let value = values.pop_front().expect("");
         match self.children.binary_search_by_key(&value.to_lowercase().as_str(), |a| a.get_value()) {
             Ok(idx) => {
                 matched_string_buffer.push(value);
                 if !self.children[idx].uri.is_empty() {
-                    results.push((&self.children[idx].uri, matched_string_buffer.clone()));
+                    results.push((matched_string_buffer.clone(), &self.children[idx].uri));
                 }
 
                 if !values.is_empty() {
@@ -353,11 +341,11 @@ impl SearchTree for MultiTree {
         root
     }
 
-    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(&'a String, Vec<&'a str>)>, String> {
+    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<String>)>, String> {
         let results = self.children.par_iter()
             .filter_map(|tree| tree.traverse(values.clone()).ok())
             .flatten()
-            .collect::<Vec<(&String, Vec<&str>)>>();
+            .collect::<Vec<(Vec<&str>, &Vec<String>)>>();
         if results.is_empty() {
             Err(String::from("No matches found"))
         } else {
@@ -404,7 +392,7 @@ impl MultiTree {
         let mut additional = Vec::new();
         if generate_ngrams {
             let filtered = lines.par_iter()
-                .filter(|(taxon_name, _)| taxon_name.split(SPLIT_PATTERN).collect::<Vec<_>>().len() > 2)
+                .filter(|(taxon_name, _)| split_with_indices(&taxon_name).0.len() > 2)
                 .collect::<Vec<&(String, String)>>();
             let pb = ProgressBar::new(filtered.len() as u64);
             pb.set_style(ProgressStyle::with_template(
@@ -413,7 +401,7 @@ impl MultiTree {
             let mut ngrams = filtered.par_iter()
                 .map(|(taxon_name, uri)| {
                     let mut result = Vec::new();
-                    let ngrams = taxon_name.split(SPLIT_PATTERN).into_iter()
+                    let ngrams = split_with_indices(&taxon_name).0.into_iter()
                         .ngrams(2)
                         .pad()
                         .collect::<Vec<Vec<&str>>>();
@@ -448,12 +436,10 @@ impl MultiTree {
                     let string = taxon_name.clone();
                     let clone = string.split(" ").collect::<Vec<_>>();
                     let head = String::from(clone[0]);
-                    let first_char = head.chars().next().unwrap();
-                    let abbrv = format!("{:}.", String::from(first_char));
-                    let mut abbrv = vec![abbrv.as_str()];
+                    let first_char = head.chars().next().unwrap().to_string();
+                    let mut abbrv = vec![first_char.as_str()];
                     abbrv.extend_from_slice(&clone[1..]);
-                    let abbrv = abbrv.join(" ");
-                    result.push((abbrv, String::from(uri)));
+                    result.push((abbrv.join(" "), String::from(uri)));
 
                     pb.inc(1);
                     result
@@ -466,20 +452,13 @@ impl MultiTree {
         }
         lines.append(&mut additional);
 
-        let pb = ProgressBar::new_spinner();
-        pb.set_style(
-            ProgressStyle::with_template("{spinner} {msg}")
-                .unwrap()
-                .tick_strings(&[
-                    "▹▹▹",
-                    "▸▹▹",
-                    "▹▸▹",
-                    "▹▹▸",
-                    "▪▪▪",
-                ])
-        );
+        let pb = get_spinner();
         pb.set_message(format!("Sorting {} lines..", lines.len()));
         lines.sort_unstable();
+        pb.finish();
+        let pb = get_spinner();
+        pb.set_message(format!("Dropping duplicates.."));
+        lines.dedup();
         pb.finish();
         let lines = lines;
 
@@ -568,7 +547,7 @@ fn test_big_multi_balanced() {
     filter_list.sort_unstable();
 
     let mut tree = MultiTree::default();
-    tree.add_taxon("resources/taxa/_current/taxon/*.list", Option::from(&filter_list));
+    tree.add_balanced("resources/taxa/_current/taxon/*.list", false, true, Option::from(&filter_list));
     tree.add_vernacular("resources/taxa/_current/vernacular/*.list", Option::from(&filter_list));
     let tree = tree;
     process_test_file(&tree, Option::from(5));

@@ -6,7 +6,7 @@ use itertools::Itertools;
 use ngrams::Ngram;
 use rayon::prelude::*;
 
-use crate::util::{get_files, get_spinner, read_lines, split_with_indices};
+use crate::util::{get_files, parse_files, get_spinner, read_lines, split_with_indices};
 
 pub enum ResultSelection {
     All,
@@ -73,34 +73,6 @@ pub struct StringTree {
     pub value: String,
     pub uri: Vec<String>,
     pub children: Vec<StringTree>,
-}
-
-fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
-    files.par_iter()
-        .map(|file| {
-            let lines = read_lines(file);
-            if let Some(pb) = pb {
-                pb.inc(1);
-            }
-            lines
-        })
-        .flatten()
-        .map(|line| line.trim().to_string())
-        .filter(|line| line.len() > 0)
-        .map(|line| {
-            let split = line.split('\t').collect::<Vec<&str>>();
-            let taxon = String::from(split[0]);
-            let uri = String::from(split[1]);
-            (taxon, uri)
-        })
-        .filter(|(taxon, _)| {
-            if let Some(filter_list) = filter_list {
-                filter_list.binary_search(&taxon.to_lowercase()).is_err()
-            } else {
-                true
-            }
-        })
-        .collect::<Vec<(String, String)>>()
 }
 
 impl SearchTree for StringTree {

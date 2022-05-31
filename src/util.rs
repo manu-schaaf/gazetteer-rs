@@ -72,3 +72,60 @@ pub(crate) fn get_spinner() -> ProgressBar {
     );
     pb
 }
+
+pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
+    files.par_iter()
+        .map(|file| {
+            let lines = read_lines(file);
+            if let Some(pb) = pb {
+                pb.inc(1);
+            }
+            lines
+        })
+        .flatten()
+        .map(|line| line.trim().to_string())
+        .filter(|line| line.len() > 0)
+        .map(|line| {
+            let split = line.split('\t').collect::<Vec<&str>>();
+            let taxon = String::from(split[0]);
+            let uri = String::from(split[1]);
+            (taxon, uri)
+        })
+        .filter(|(taxon, _)| {
+            if let Some(filter_list) = filter_list {
+                filter_list.binary_search(&taxon.to_lowercase()).is_err()
+            } else {
+                true
+            }
+        })
+        .collect::<Vec<(String, String)>>()
+}
+
+
+struct Segmenter {
+    normalizer: NormalizerWrapper,
+    pre_tokenizer: Sequence,
+}
+
+impl Segmenter {
+    fn default() -> Segmenter {
+        Self {
+            normalizer: NormalizerWrapper::NFKC(NFKC::default()),
+            pre_tokenizer: Sequence::new(vec![
+                PreTokenizerWrapper::Punctuation(Punctuation::new(SplitDelimiterBehavior::Removed)),
+                PreTokenizerWrapper::Whitespace(Whitespace::default()),
+            ]),
+        }
+    }
+
+    pub fn tokenize(&self, string: &str) -> Vec<(String, (usize, usize))> {
+        let mut string = PreTokenizedString::from(string);
+        string.normalize(|s| self.normalizer.normalize(s)).expect("Failed during normalization!");
+        self.pre_tokenizer.pre_tokenize(&mut string).expect("Failed during pre-tokenization!");
+        string.get_splits(OffsetReferential::Original, OffsetType::Char)
+            .into_iter()
+            .map(
+                |(token, offset, _)| (String::from(token), (offset.0, offset.1))
+            ).collect()
+    }
+}

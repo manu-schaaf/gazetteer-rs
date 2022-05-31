@@ -341,18 +341,18 @@ impl MultiTree {
     }
 
     fn add_balanced(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
-        self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, generate_ngrams, generate_abbrv, filter_list));
+        self._load_balanced(root_path, self.each_size as usize, generate_ngrams, generate_abbrv, filter_list);
     }
 
     fn add_taxon(&mut self, root_path: &str, filter_list: Option<&Vec<String>>) {
-        self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, true, true, filter_list));
+        self._load_balanced(root_path, self.each_size as usize, true, true, filter_list);
     }
 
     fn add_vernacular(&mut self, root_path: &str, filter_list: Option<&Vec<String>>) {
-        self.children.append(&mut Self::_load_balanced(root_path, self.each_size as usize, false, false, filter_list));
+        self._load_balanced(root_path, self.each_size as usize, false, false, filter_list);
     }
 
-    fn _load_balanced<'data>(root_path: &str, each_size: usize, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) -> Vec<StringTree> {
+    fn _load_balanced<'data>(&mut self, root_path: &str, each_size: usize, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
         let files: Vec<String> = get_files(root_path);
 
         let pb = ProgressBar::new(files.len() as u64);
@@ -452,14 +452,14 @@ impl MultiTree {
             tasks.push((&lines[start..end], pb));
         }
 
-        let results = tasks.par_iter()
+        let mut results = tasks.par_iter()
             .map(|(lines, pb)| {
                 let mut tree = StringTree::default();
                 tree._load_lines_in_order(Vec::from(*lines), Option::from(pb));
                 pb.finish();
                 tree
             }).collect::<Vec<StringTree>>();
-        results
+        self.children.append(&mut results);
     }
 }
 

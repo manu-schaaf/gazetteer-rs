@@ -1,15 +1,11 @@
-use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io;
-use std::io::{BufRead, Lines};
+use std::io::{BufRead};
 use std::path::Path;
 
 use glob::glob;
-use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
-use itertools::{EitherOrBoth, merge_join_by};
-use ngrams::Ngrams;
+use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy};
 
 pub fn read_lines<P>(filename: P) -> Vec<String>
     where P: AsRef<Path>, {
@@ -36,8 +32,8 @@ pub fn split_with_indices(s: &str) -> (Vec<&str>, Vec<(usize, usize)>) {
     let indices = s.match_indices(SPLIT_PATTERN).collect::<Vec<_>>();
 
     let mut last = 0;
-    let mut offsets: Vec<((usize, usize))> = Vec::new();
-    let mut slices: Vec<(&str)> = Vec::new();
+    let mut offsets: Vec<(usize, usize)> = Vec::new();
+    let mut slices: Vec<&str> = Vec::new();
     for (idx, mtch) in indices {
         let slice = &s[last..idx];
         _push_slice(&mut slices, &mut offsets, slice, last, idx);
@@ -99,33 +95,4 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
             }
         })
         .collect::<Vec<(String, String)>>()
-}
-
-
-struct Segmenter {
-    normalizer: NormalizerWrapper,
-    pre_tokenizer: Sequence,
-}
-
-impl Segmenter {
-    fn default() -> Segmenter {
-        Self {
-            normalizer: NormalizerWrapper::NFKC(NFKC::default()),
-            pre_tokenizer: Sequence::new(vec![
-                PreTokenizerWrapper::Punctuation(Punctuation::new(SplitDelimiterBehavior::Removed)),
-                PreTokenizerWrapper::Whitespace(Whitespace::default()),
-            ]),
-        }
-    }
-
-    pub fn tokenize(&self, string: &str) -> Vec<(String, (usize, usize))> {
-        let mut string = PreTokenizedString::from(string);
-        string.normalize(|s| self.normalizer.normalize(s)).expect("Failed during normalization!");
-        self.pre_tokenizer.pre_tokenize(&mut string).expect("Failed during pre-tokenization!");
-        string.get_splits(OffsetReferential::Original, OffsetType::Char)
-            .into_iter()
-            .map(
-                |(token, offset, _)| (String::from(token), (offset.0, offset.1))
-            ).collect()
-    }
 }

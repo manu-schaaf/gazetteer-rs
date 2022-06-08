@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use itertools::Itertools;
 use ngrams::Ngram;
 use rayon::prelude::*;
 
@@ -187,7 +186,7 @@ impl StringTree {
     }
 
     fn join(&mut self, other: &StringTree) {
-        let mut children = &mut self.children;
+        let children = &mut self.children;
         let mut s_index = 0;
         let mut o_index = 0;
         let pb = ProgressBar::new(other.children.len() as u64);
@@ -242,7 +241,7 @@ impl StringTree {
         // }
     }
 
-    fn _load_lines(&mut self, mut lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
+    fn _load_lines(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
             self.insert(VecDeque::from(split_with_indices(&taxon_name).0), String::from(uri));
 
@@ -340,7 +339,7 @@ impl MultiTree {
         root
     }
 
-    fn add_balanced(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
+    pub fn add_balanced(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
         self._load_balanced(root_path, self.each_size as usize, generate_ngrams, generate_abbrv, filter_list);
     }
 
@@ -348,7 +347,7 @@ impl MultiTree {
         self._load_balanced(root_path, self.each_size as usize, true, true, filter_list);
     }
 
-    fn add_vernacular(&mut self, root_path: &str, filter_list: Option<&Vec<String>>) {
+    pub fn add_vernacular(&mut self, root_path: &str, filter_list: Option<&Vec<String>>) {
         self._load_balanced(root_path, self.each_size as usize, false, false, filter_list);
     }
 

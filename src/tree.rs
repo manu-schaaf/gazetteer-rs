@@ -5,12 +5,15 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use ngrams::Ngram;
 use rayon::prelude::*;
 
+use rocket::FromFormField;
+
 use crate::util::{get_files, parse_files, get_spinner, read_lines, split_with_indices};
 
+#[cfg_attr(feature = "server", derive(Debug, FromFormField))]
 pub enum ResultSelection {
     All,
     Last,
-    Longest,
+    Longest
 }
 
 pub trait SearchTree: Sync + Send {
@@ -20,8 +23,8 @@ pub trait SearchTree: Sync + Send {
         where Self: Sized;
     fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<String>)>, String>;
 
-    fn search(&self, text: &String, max_len: Option<usize>, result_selection: Option<ResultSelection>) -> Vec<(String, String, (usize, usize))> {
-        let result_selection = result_selection.unwrap_or(ResultSelection::Longest);
+    fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, Vec<String>, usize, usize)> {
+        let result_selection = result_selection.unwrap_or(&ResultSelection::Longest);
         let max_len = max_len.unwrap_or(5 as usize);
 
         let (slices, offsets) = split_with_indices(text);
@@ -39,14 +42,14 @@ pub trait SearchTree: Sync + Send {
                         let mut returns = Vec::new();
                         for result in results {
                             let end = offsets[result.0.len() - 1].1;
-                            returns.push((result.0.join(" "), result.1.join("; "), (start, end)));
+                            returns.push((result.0.join(" "), result.1.clone(), start, end));
                         }
                         returns
                     }
                     ResultSelection::Last => {
                         let result = results.last().unwrap();
                         let end = offsets[result.0.len() - 1].1;
-                        vec![(result.0.join(" "), result.1.join("; "), (start, end))]
+                        vec![(result.0.join(" "), result.1.clone(), start, end)]
                     }
                     ResultSelection::Longest => {
                         let mut result = (Vec::new(), &Vec::new());
@@ -56,12 +59,12 @@ pub trait SearchTree: Sync + Send {
                             }
                         }
                         let end = offsets[result.0.len() - 1].1;
-                        vec![(result.0.join(" "), result.1.join("; "), (start, end))]
+                        vec![(result.0.join(" "), result.1.clone(), start, end)]
                     }
                 }
             })
             .flatten()
-            .collect::<Vec<(String, String, (usize, usize))>>();
+            .collect::<Vec<(String, Vec<String>, usize, usize)>>();
 
         results
     }
@@ -353,6 +356,7 @@ impl MultiTree {
 
     fn _load_balanced<'data>(&mut self, root_path: &str, each_size: usize, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
         let files: Vec<String> = get_files(root_path);
+        println!("Found {} files", files.len());
 
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::with_template(
@@ -469,12 +473,12 @@ fn process_test_file(tree: &impl SearchTree, max_len: Option<i32>) {
     let text = read_lines("resources/216578.txt")
         .join(" ");
 
-    process_test_output(tree.search(&text, Option::from(max_len), Option::from(ResultSelection::Last)));
+    process_test_output(tree.search(&text, Option::from(max_len), Option::from(&ResultSelection::Last)));
 }
 
-fn process_test_output(results: Vec<(String, String, (usize, usize))>) {
+fn process_test_output(results: Vec<(String, Vec<String>, usize, usize)>) {
     for result in results {
-        println!("{:?} ({},{}) -> {:}", result.0, result.2.0, result.2.1, result.1)
+        println!("{:?} ({},{}) -> {:}", result.0, result.2, result.3, result.1.join("; "))
     }
 }
 

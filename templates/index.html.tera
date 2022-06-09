@@ -1,0 +1,75 @@
+{% import "macros" as m %}
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Rocket Form Example</title>
+    <link rel="stylesheet" href="/chota.min.css">
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px 10px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Form Example</h1>
+
+    {% if errors | length > 1 %}
+        <small class="text-error" style="margin-top: -20px">
+            {{ errors | length }} field(s) have errors
+        </small>
+    {% endif %}
+
+    <form action="/" method="post" enctype="multipart/form-data">
+        <fieldset>
+            <legend>Settings</legend>
+
+            <div class="row">
+                <div class="col">
+                    {{ m::input(label="Max Search Length", type="number", name="max_len", value=3) }}
+                    <!-- required -->
+                </div>
+                <div class="col">
+                    {{ m::select(
+                        label="Result Selection Method",
+                        name="result_selection",
+                        options=["Longest", "Last", "All"]
+                    ) }}
+                </div>
+            </div>
+        </fieldset>
+
+        <fieldset>
+            <legend>Contents</legend>
+
+            {{ m::textarea(
+                label="Text",
+                name="text",
+                placeholder="Nach Schluß des Congresses ist eine längere Excursion vorgesehen, auf welcher die Inseln an der Küste von Pembrokshire besucht werden.
+Dieser Ausflug dürfte besonders interessant werden, weil sich hier große Brutkolonien von Puffinus p. puffinus und verschiedener Alcidae befinden.
+Auch Thalassidroma pelagica dürfte hier angetroffen werden.
+Bei günstigem Wetter ist ferner der Besuch einer Brutkolonie von Sula bassana vorgesehen.",
+                max=50000
+            ) }}
+
+            {{ m::input(
+                label="File to Upload (plain text)",
+                type="file",
+                name="file"
+            ) }}
+
+            <!-- <input type="file" name="file" id="file" required accept=".pdf"> -->
+
+        </fieldset>
+
+        <br/>
+        <input type="submit" value="Submit" class="is-full-width"/>
+    </form>
+</div>
+</body>
+</html>

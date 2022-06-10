@@ -11,8 +11,5 @@ COPY *.toml .
 
 RUN cargo build --features="server" --release
 
-EXPOSE 8080
-ENV ROCKET_ADRESS=0.0.0.0
-ENV ROCKET_PORT=8080
-#CMD ["cargo", "run", "--features", "server"]
+EXPOSE 80
 CMD ["./target/release/gazetteer"]

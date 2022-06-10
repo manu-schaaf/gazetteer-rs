@@ -1,8 +1,6 @@
 [default]
 limits.data-form = "2MiB"
 template_dir = "templates/"
-address = "localhost"
-port = 8000
 
 [release]
 address = "0.0.0.0"

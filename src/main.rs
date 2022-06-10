@@ -18,7 +18,7 @@ use gazetteer::tree::{MultiTree, ResultSelection, SearchTree};
 use gazetteer::util::read_lines;
 
 #[cfg(test)]
-mod tests;
+mod rocket_test;
 
 #[derive(Debug, FromForm)]
 struct Submit<'v> {
@@ -107,7 +107,7 @@ async fn tag(
         Option::from(result_selection),
     );
     json!({
-        "status":"ok",
+        "status": "ok",
         "results": results
     })
 }

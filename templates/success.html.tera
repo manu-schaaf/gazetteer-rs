@@ -21,11 +21,24 @@
     <ul>
         {% for result in results %}
             <li>"{{ result[0] }}" ({{ result[2] }},{{ result[3] }})
-                <ul>
-                    {% for uri in result[1] %}
-                        <li><a href="{{ uri }}">{{ uri }}</a></li>
-                    {% endfor %}
-                </ul>
+                {% if result[1] | length > 1 %}
+                    <details>
+                        <summary>
+                            String matches {{ result[1] | length }} entities
+                        </summary>
+                        <ul>
+                            {% for uri in result[1] %}
+                                <li><a href="{{ uri }}">{{ uri }}</a></li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                {% else %}
+                    <ul>
+                        {% for uri in result[1] %}
+                            <li><a href="{{ uri }}">{{ uri }}</a></li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
             </li>
         {% endfor %}
     </ul>

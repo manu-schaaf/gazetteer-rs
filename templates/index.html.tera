@@ -5,7 +5,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width">
-    <title>Rocket Form Example</title>
+    <title>BIOfid Gazetteer</title>
     <link rel="stylesheet" href="/chota.min.css">
     <style>
         .container {
@@ -17,7 +17,7 @@
 </head>
 <body>
 <div class="container">
-    <h1>Form Example</h1>
+    <h1>BIOfid Gazetteer</h1>
 
     {% if errors | length > 1 %}
         <small class="text-error" style="margin-top: -20px">

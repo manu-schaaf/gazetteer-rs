@@ -5,6 +5,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use ngrams::Ngram;
 use rayon::prelude::*;
 
+#[cfg(feature = "server")]
 use rocket::FromFormField;
 
 use crate::util::{get_files, parse_files, get_spinner, read_lines, split_with_indices};

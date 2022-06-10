@@ -1,20 +1,19 @@
 use std::cmp::Ordering;
-use std::collections::VecDeque;
+use std::collections::vec_deque::VecDeque;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use ngrams::Ngram;
 use rayon::prelude::*;
-
 #[cfg(feature = "server")]
 use rocket::FromFormField;
 
-use crate::util::{get_files, parse_files, get_spinner, read_lines, split_with_indices};
+use crate::util::{get_files, get_spinner, parse_files, read_lines, split_with_indices};
 
 #[cfg_attr(feature = "server", derive(Debug, FromFormField))]
 pub enum ResultSelection {
     All,
     Last,
-    Longest
+    Longest,
 }
 
 pub trait SearchTree: Sync + Send {
@@ -28,9 +27,14 @@ pub trait SearchTree: Sync + Send {
         let result_selection = result_selection.unwrap_or(&ResultSelection::Longest);
         let max_len = max_len.unwrap_or(5 as usize);
 
-        let (slices, offsets) = split_with_indices(text);
+        let (mut slices, mut offsets) = split_with_indices(text);
 
-        let results = slices
+        // Pad the slices and their offsets to include the last words
+        slices.extend(vec![""; max_len]);
+        offsets.extend(vec![(0, 0); max_len]);
+        let (slices, offsets) = (slices, offsets);
+
+        let mut results = slices
             .par_windows(max_len)
             .map(|slice| self.traverse(VecDeque::from(slice.to_vec())))
             .zip(offsets.par_windows(max_len))
@@ -67,6 +71,10 @@ pub trait SearchTree: Sync + Send {
             .flatten()
             .collect::<Vec<(String, Vec<String>, usize, usize)>>();
 
+        // results.dedup_by(|b, a| b.2 <= a.3);
+        // TODO: This removes fully covered entities that end on the same character as their covering entities but not partial overlaps
+        results.dedup_by_key(|el| el.3);
+
         results
     }
 }
@@ -100,6 +108,7 @@ impl SearchTree for StringTree {
         let mut lines = parse_files(files, Option::from(&pb), None);
         lines.sort_unstable();
         let lines = lines;
+        pb.finish_with_message("Done");
 
         let pb = ProgressBar::new(lines.len() as u64);
         pb.set_style(ProgressStyle::default_bar()
@@ -108,6 +117,7 @@ impl SearchTree for StringTree {
             )).unwrap()
         );
         root._load_lines_in_order(lines, Option::from(&pb));
+        pb.finish_with_message("Done");
 
         root
     }
@@ -124,6 +134,14 @@ impl SearchTree for StringTree {
 
 
 impl StringTree {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            value: "<ROOT>".to_string(),
+            uri: vec![],
+            children: Vec::with_capacity(capacity),
+        }
+    }
+
     fn from(value: &str, uri: String) -> Self {
         let value = String::from(value);
         Self {
@@ -146,7 +164,7 @@ impl StringTree {
         &self.value
     }
 
-    fn insert(&mut self, mut values: VecDeque<&str>, uri: String) {
+    pub fn insert(&mut self, mut values: VecDeque<&str>, uri: String) {
         let value = &values.pop_front().unwrap().to_lowercase();
         match self.children.binary_search_by_key(&value, |a| a.get_value()) {
             Ok(idx) => {
@@ -169,7 +187,7 @@ impl StringTree {
         }
     }
 
-    fn insert_in_order(&mut self, mut values: VecDeque<&str>, uri: String) {
+    pub fn insert_in_order(&mut self, mut values: VecDeque<&str>, uri: String) {
         let value = &values.pop_front().unwrap().to_lowercase();
         if let Some(last_child) = self.children.last_mut() && last_child.value.eq(value) {
             if values.is_empty() {
@@ -219,7 +237,7 @@ impl StringTree {
                 }
             }
         }
-        pb.finish_with_message("done")
+        pb.finish_with_message("Done")
 
         // let result: Vec<EitherOrBoth<_, _>> = merge_join_by(&children, &other.children, |a, b| a.value.cmp(&b.value)).collect();
         // for el in result {
@@ -393,7 +411,7 @@ impl MultiTree {
                 .flatten()
                 .collect::<Vec<(String, String)>>();
 
-            pb.finish_with_message(format!("Adding {} n-grams\n", ngrams.len()));
+            pb.finish_with_message(format!("Adding {} n-grams", ngrams.len()));
             additional.append(&mut ngrams);
         }
 
@@ -423,7 +441,7 @@ impl MultiTree {
                 .flatten()
                 .collect::<Vec<(String, String)>>();
 
-            pb.finish_with_message(format!("Adding {} abbreviations\n", abbrevations.len()));
+            pb.finish_with_message("Done");
             additional.append(&mut abbrevations);
         }
         lines.append(&mut additional);
@@ -458,7 +476,7 @@ impl MultiTree {
 
         let mut results = tasks.par_iter()
             .map(|(lines, pb)| {
-                let mut tree = StringTree::default();
+                let mut tree = StringTree::with_capacity(each_size);
                 tree._load_lines_in_order(Vec::from(*lines), Option::from(pb));
                 pb.finish();
                 tree

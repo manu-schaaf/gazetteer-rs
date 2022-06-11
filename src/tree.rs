@@ -79,14 +79,14 @@ pub trait SearchTree: Sync + Send {
     }
 }
 
-#[derive(Clone)]
-pub struct StringTree {
+#[derive(Debug, Clone)]
+pub struct BinarySearchTree {
     pub value: String,
     pub uri: Vec<String>,
-    pub children: Vec<StringTree>,
+    pub children: Vec<BinarySearchTree>,
 }
 
-impl SearchTree for StringTree {
+impl SearchTree for BinarySearchTree {
     fn default() -> Self {
         Self {
             value: "<ROOT>".to_string(),
@@ -133,7 +133,7 @@ impl SearchTree for StringTree {
 }
 
 
-impl StringTree {
+impl BinarySearchTree {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             value: "<ROOT>".to_string(),
@@ -178,9 +178,9 @@ impl StringTree {
             }
             Err(idx) => {
                 if values.is_empty() {
-                    self.children.insert(idx, StringTree::from(value, uri));
+                    self.children.insert(idx, BinarySearchTree::from(value, uri));
                 } else {
-                    self.children.insert(idx, StringTree::child(value));
+                    self.children.insert(idx, BinarySearchTree::child(value));
                     self.children[idx].insert(values, uri);
                 }
             }
@@ -199,15 +199,15 @@ impl StringTree {
             }
         } else {
             if values.is_empty() {
-                self.children.push(StringTree::from(value, uri));
+                self.children.push(BinarySearchTree::from(value, uri));
             } else {
-                self.children.push(StringTree::child(value));
+                self.children.push(BinarySearchTree::child(value));
                 self.children.last_mut().unwrap().insert_in_order(values, uri);
             }
         }
     }
 
-    fn join(&mut self, other: &StringTree) {
+    fn join(&mut self, other: &BinarySearchTree) {
         let children = &mut self.children;
         let mut s_index = 0;
         let mut o_index = 0;
@@ -310,11 +310,11 @@ impl StringTree {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MultiTree {
     pub value: String,
     pub uri: String,
-    pub children: Vec<StringTree>,
+    pub children: Vec<BinarySearchTree>,
     each_size: usize,
 }
 
@@ -476,11 +476,11 @@ impl MultiTree {
 
         let mut results = tasks.par_iter()
             .map(|(lines, pb)| {
-                let mut tree = StringTree::with_capacity(each_size);
+                let mut tree = BinarySearchTree::with_capacity(each_size);
                 tree._load_lines_in_order(Vec::from(*lines), Option::from(pb));
                 pb.finish();
                 tree
-            }).collect::<Vec<StringTree>>();
+            }).collect::<Vec<BinarySearchTree>>();
         self.children.append(&mut results);
     }
 }

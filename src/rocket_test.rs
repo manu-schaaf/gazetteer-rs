@@ -4,7 +4,7 @@ use rocket::http::{Accept, ContentType, Status};
 use rocket::local::blocking::Client;
 use rocket::serde::{Deserialize, Serialize, uuid::Uuid};
 
-use gazetteer::tree::{ResultSelection, SearchTree, StringTree};
+use gazetteer::tree::{ResultSelection, SearchTree, BinarySearchTree};
 use gazetteer::util::split_with_indices;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

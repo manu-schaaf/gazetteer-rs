@@ -6,10 +6,13 @@ use ngrams::Ngram;
 use rayon::prelude::*;
 #[cfg(feature = "server")]
 use rocket::FromFormField;
+#[cfg(feature = "server")]
+use rocket::serde::{Deserialize, Serialize};
 
 use crate::util::{get_files, get_spinner, parse_files, read_lines, split_with_indices};
 
-#[cfg_attr(feature = "server", derive(Debug, FromFormField))]
+#[cfg_attr(feature = "server", derive(Debug, FromFormField, Serialize, Deserialize))]
+#[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
 pub enum ResultSelection {
     All,
     Last,

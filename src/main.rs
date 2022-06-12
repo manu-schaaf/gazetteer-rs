@@ -127,8 +127,8 @@ fn rocket() -> _ {
 
     let mut tree = MultiTree::default();
     // tree.add_balanced("resources/taxa/_old/taxa_2019_09_27.txt", false, true, Option::from(&filter_list));
-    tree.add_balanced("resources/taxon/*.list", false, true, Option::from(&filter_list));
-    tree.add_vernacular("resources/vernacular/*.list", Option::from(&filter_list));
+    tree.add_balanced("resources/taxon/*.list", false, true, true, Option::from(&filter_list));
+    tree.add_balanced("resources/vernacular/*.list", false, false, false, Option::from(&filter_list));
 
     println!("Fininshed loading gazetteer.");
 

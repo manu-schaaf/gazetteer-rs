@@ -27,15 +27,15 @@
                             String matches {{ result[1] | length }} entities
                         </summary>
                         <ul>
-                            {% for uri in result[1] %}
-                                <li><a href="{{ uri }}">{{ uri }}</a></li>
+                            {% for match in result[1] %}
+                                <li><a href="{{ match.match_uri }}">{{ match.match_type }} Match: {{ match.match_string }} ({{ match.match_uri }})</a></li>
                             {% endfor %}
                         </ul>
                     </details>
                 {% else %}
                     <ul>
-                        {% for uri in result[1] %}
-                            <li><a href="{{ uri }}">{{ uri }}</a></li>
+                        {% for match in result[1] %}
+                            <li><a href="{{ match.match_uri }}">{{ match.match_type }} Match: {{ match.match_string }} ({{ match.match_uri }})</a></li>
                         {% endfor %}
                     </ul>
                 {% endif %}

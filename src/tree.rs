@@ -11,22 +11,73 @@ use rocket::serde::{Deserialize, Serialize};
 
 use crate::util::{get_files, get_spinner, parse_files, read_lines, split_with_indices};
 
-#[cfg_attr(feature = "server", derive(Debug, FromFormField, Serialize, Deserialize))]
+#[cfg_attr(feature = "server", derive(FromFormField, Serialize, Deserialize))]
 #[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
+#[derive(Debug)]
 pub enum ResultSelection {
     All,
     Last,
     Longest,
 }
 
+#[cfg_attr(feature = "server", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
+#[derive(Debug, Clone)]
+pub enum MatchType {
+    None,
+    Full,
+    Corrected,
+}
+
+#[cfg_attr(feature = "server", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
+#[derive(Debug, Clone)]
+pub struct Match {
+    match_type: MatchType,
+    match_string: String,
+    match_uri: String,
+}
+
+impl Match {
+    fn none() -> Self {
+        Self {
+            match_type: MatchType::None,
+            match_string: String::new(),
+            match_uri: String::new(),
+        }
+    }
+
+    fn full(
+        match_string: String,
+        match_uri: String,
+    ) -> Self {
+        Match {
+            match_type: MatchType::Full,
+            match_string,
+            match_uri,
+        }
+    }
+
+    fn corrected(
+        match_string: String,
+        match_uri: String,
+    ) -> Self {
+        Match {
+            match_type: MatchType::Corrected,
+            match_string,
+            match_uri,
+        }
+    }
+}
+
+
 pub trait SearchTree: Sync + Send {
     fn default() -> Self
         where Self: Sized;
-    fn load(root_path: &str) -> Self
-        where Self: Sized;
-    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<String>)>, String>;
 
-    fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, Vec<String>, usize, usize)> {
+    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<Match>)>, String>;
+
+    fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, Vec<Match>, usize, usize)> {
         let result_selection = result_selection.unwrap_or(&ResultSelection::Longest);
         let max_len = max_len.unwrap_or(5 as usize);
 
@@ -72,7 +123,7 @@ pub trait SearchTree: Sync + Send {
                 }
             })
             .flatten()
-            .collect::<Vec<(String, Vec<String>, usize, usize)>>();
+            .collect::<Vec<(String, Vec<Match>, usize, usize)>>();
 
         // results.dedup_by(|b, a| b.2 <= a.3);
         // TODO: This removes fully covered entities that end on the same character as their covering entities but not partial overlaps
@@ -85,7 +136,7 @@ pub trait SearchTree: Sync + Send {
 #[derive(Debug, Clone)]
 pub struct BinarySearchTree {
     pub value: String,
-    pub uri: Vec<String>,
+    pub matches: Vec<Match>,
     pub children: Vec<BinarySearchTree>,
 }
 
@@ -93,39 +144,12 @@ impl SearchTree for BinarySearchTree {
     fn default() -> Self {
         Self {
             value: "<ROOT>".to_string(),
-            uri: vec![],
+            matches: vec![],
             children: vec![],
         }
     }
 
-    fn load(root_path: &str) -> Self {
-        let mut root = Self::default();
-        let files: Vec<String> = get_files(root_path);
-
-        let pb = ProgressBar::new(files.len() as u64);
-        pb.set_style(ProgressStyle::default_bar()
-            .template(&format!(
-                "Loading Input Files {{bar:40}} {{pos}}/{{len}} {{msg}}"
-            )).unwrap()
-        );
-        let mut lines = parse_files(files, Option::from(&pb), None);
-        lines.sort_unstable();
-        let lines = lines;
-        pb.finish_with_message("Done");
-
-        let pb = ProgressBar::new(lines.len() as u64);
-        pb.set_style(ProgressStyle::default_bar()
-            .template(&format!(
-                "Building Tree {{bar:40}} {{pos}}/{{len}} {{msg}}"
-            )).unwrap()
-        );
-        root._load_lines_in_order(lines, Option::from(&pb));
-        pb.finish_with_message("Done");
-
-        root
-    }
-
-    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<String>)>, String> {
+    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<Match>)>, String> {
         let vec = self._traverse(values, Vec::new(), Vec::new());
         if vec.len() > 0 {
             Ok(vec)
@@ -140,16 +164,16 @@ impl BinarySearchTree {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             value: "<ROOT>".to_string(),
-            uri: vec![],
+            matches: vec![],
             children: Vec::with_capacity(capacity),
         }
     }
 
-    fn from(value: &str, uri: String) -> Self {
+    fn from(value: &str, match_string: String, match_uri: String) -> Self {
         let value = String::from(value);
         Self {
             value,
-            uri: vec![uri],
+            matches: vec![Match::full(match_string, match_uri)],
             children: vec![],
         }
     }
@@ -158,7 +182,7 @@ impl BinarySearchTree {
         let value = String::from(value);
         Self {
             value,
-            uri: vec![],
+            matches: vec![],
             children: vec![],
         }
     }
@@ -167,45 +191,54 @@ impl BinarySearchTree {
         &self.value
     }
 
-    pub fn insert(&mut self, mut values: VecDeque<&str>, uri: String) {
+    pub fn insert(&mut self, mut values: VecDeque<&str>, match_string: String, match_uri: String) {
         let value = &values.pop_front().unwrap().to_lowercase();
         match self.children.binary_search_by_key(&value, |a| a.get_value()) {
             Ok(idx) => {
                 if values.is_empty() {
-                    self.children[idx].uri.push(uri);
-                    self.children[idx].uri.sort();
-                    self.children[idx].uri.dedup();
+                    self.children[idx]._push_match(Match::full(match_string, match_uri));
                 } else {
-                    self.children[idx].insert(values, uri);
+                    self.children[idx].insert(values, match_string, match_uri);
                 }
             }
             Err(idx) => {
                 if values.is_empty() {
-                    self.children.insert(idx, BinarySearchTree::from(value, uri));
+                    self.children.insert(idx, BinarySearchTree::from(value, match_string, match_uri));
                 } else {
                     self.children.insert(idx, BinarySearchTree::child(value));
-                    self.children[idx].insert(values, uri);
+                    self.children[idx].insert(values, match_string, match_uri);
                 }
             }
         }
     }
 
-    pub fn insert_in_order(&mut self, mut values: VecDeque<&str>, uri: String) {
+    pub fn _push_match(&mut self, mtch: Match) {
+        match self.matches.binary_search_by_key(&&mtch.match_uri, |el| &el.match_uri) {
+            Ok(_) => {
+                // This should not happen, unless there is a duplicate in the input data
+                // or the same (match_string, match_uri) pair occurs with a different MatchType
+                // TODO: Choose behavior on collision with different MatchType
+            }
+            Err(i) => {
+                self.matches.insert(i, mtch);
+            }
+        }
+    }
+
+    pub fn insert_in_order(&mut self, mut values: VecDeque<&str>, match_string: String, match_uri: String) {
         let value = &values.pop_front().unwrap().to_lowercase();
         if let Some(last_child) = self.children.last_mut() && last_child.value.eq(value) {
             if values.is_empty() {
-                last_child.uri.push(uri);
-                last_child.uri.sort();
-                last_child.uri.dedup();
+                last_child._push_match(Match::full(match_string, match_uri));
             } else {
-                last_child.insert_in_order(values, uri);
+                last_child.insert_in_order(values, match_string, match_uri);
             }
         } else {
             if values.is_empty() {
-                self.children.push(BinarySearchTree::from(value, uri));
+                self.children.push(BinarySearchTree::from(value, match_string, match_uri));
             } else {
                 self.children.push(BinarySearchTree::child(value));
-                self.children.last_mut().unwrap().insert_in_order(values, uri);
+                self.children.last_mut().unwrap().insert_in_order(values, match_string, match_uri);
             }
         }
     }
@@ -268,7 +301,7 @@ impl BinarySearchTree {
 
     fn _load_lines(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
-            self.insert(VecDeque::from(split_with_indices(&taxon_name).0), String::from(uri));
+            self.insert(VecDeque::from(split_with_indices(&taxon_name.clone()).0), taxon_name, uri);
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -278,7 +311,7 @@ impl BinarySearchTree {
 
     fn _load_lines_in_order(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
         for (taxon_name, uri) in lines {
-            self.insert_in_order(VecDeque::from(split_with_indices(&taxon_name).0), String::from(uri));
+            self.insert_in_order(VecDeque::from(split_with_indices(&taxon_name.clone()).0), taxon_name, uri);
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -290,14 +323,14 @@ impl BinarySearchTree {
         &'a self,
         mut values: VecDeque<&'a str>,
         mut matched_string_buffer: Vec<&'a str>,
-        mut results: Vec<(Vec<&'a str>, &'a Vec<String>)>,
-    ) -> Vec<(Vec<&'a str>, &'a Vec<String>)> {
+        mut results: Vec<(Vec<&'a str>, &'a Vec<Match>)>,
+    ) -> Vec<(Vec<&'a str>, &'a Vec<Match>)> {
         let value = values.pop_front().expect("");
         match self.children.binary_search_by_key(&value.to_lowercase().as_str(), |a| a.get_value()) {
             Ok(idx) => {
                 matched_string_buffer.push(value);
-                if !self.children[idx].uri.is_empty() {
-                    results.push((matched_string_buffer.clone(), &self.children[idx].uri));
+                if !self.children[idx].matches.is_empty() {
+                    results.push((matched_string_buffer.clone(), &self.children[idx].matches));
                 }
 
                 if !values.is_empty() {
@@ -315,8 +348,6 @@ impl BinarySearchTree {
 
 #[derive(Debug, Clone)]
 pub struct MultiTree {
-    pub value: String,
-    pub uri: String,
     pub children: Vec<BinarySearchTree>,
     each_size: usize,
 }
@@ -324,24 +355,16 @@ pub struct MultiTree {
 impl SearchTree for MultiTree {
     fn default() -> Self {
         Self {
-            value: "<HYPER_ROOT>".to_string(),
-            uri: "".to_string(),
             children: vec![],
             each_size: 500_000,
         }
     }
 
-    fn load(root_path: &str) -> Self {
-        let mut root = Self::default();
-        root.add_balanced(root_path, false, false, None);
-        root
-    }
-
-    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<String>)>, String> {
+    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<Match>)>, String> {
         let results = self.children.par_iter()
             .filter_map(|tree| tree.traverse(values.clone()).ok())
             .flatten()
-            .collect::<Vec<(Vec<&str>, &Vec<String>)>>();
+            .collect::<Vec<(Vec<&str>, &Vec<Match>)>>();
         if results.is_empty() {
             Err(String::from("No matches found"))
         } else {
@@ -351,10 +374,14 @@ impl SearchTree for MultiTree {
 }
 
 impl MultiTree {
+    fn load(root_path: &str) -> Self {
+        let mut root = Self::default();
+        root.add_balanced(root_path, false, false, None);
+        root
+    }
+
     fn from_taxon_list(root_path: &str, each_size: i32, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) -> Self {
         let mut root = Self {
-            value: "<HYPER_ROOT>".to_string(),
-            uri: "".to_string(),
             children: vec![],
             each_size: each_size as usize,
         };
@@ -366,14 +393,6 @@ impl MultiTree {
 
     pub fn add_balanced(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
         self._load_balanced(root_path, self.each_size as usize, generate_ngrams, generate_abbrv, filter_list);
-    }
-
-    fn add_taxon(&mut self, root_path: &str, filter_list: Option<&Vec<String>>) {
-        self._load_balanced(root_path, self.each_size as usize, true, true, filter_list);
-    }
-
-    pub fn add_vernacular(&mut self, root_path: &str, filter_list: Option<&Vec<String>>) {
-        self._load_balanced(root_path, self.each_size as usize, false, false, filter_list);
     }
 
     fn _load_balanced<'data>(&mut self, root_path: &str, each_size: usize, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
@@ -487,159 +506,3 @@ impl MultiTree {
         self.children.append(&mut results);
     }
 }
-
-fn process_test_file(tree: &impl SearchTree, max_len: Option<i32>) {
-    let max_len = max_len.or(Option::from(5)).unwrap() as usize;
-
-    println!("Loading test file..");
-    let text = read_lines("resources/216578.txt")
-        .join(" ");
-
-    process_test_output(tree.search(&text, Option::from(max_len), Option::from(&ResultSelection::Last)));
-}
-
-fn process_test_output(results: Vec<(String, Vec<String>, usize, usize)>) {
-    for result in results {
-        println!("{:?} ({},{}) -> {:}", result.0, result.2, result.3, result.1.join("; "))
-    }
-}
-
-
-#[test]
-fn test_sample() {
-    let mut tree = StringTree::default();
-    for (s, uri) in vec![("An example phrase", "uri:phrase"), ("An example", "uri:example")] {
-        let s = String::from(s);
-        let uri = String::from(uri);
-        let v: VecDeque<&str> = s.split(' ').collect::<VecDeque<&str>>();
-        tree.insert(v, uri);
-    }
-    println!("{:?}", tree.traverse(String::from("An xyz").split(' ').collect::<VecDeque<&str>>()));
-    println!("{:?}", tree.traverse(String::from("An example").split(' ').collect::<VecDeque<&str>>()));
-    println!("{:?}", tree.traverse(String::from("An example phrase").split(' ').collect::<VecDeque<&str>>()));
-}
-
-#[test]
-fn test_small_string_tree() {
-    let tree = StringTree::load("resources/taxa.txt");
-    process_test_file(&tree, Option::from(5));
-}
-
-#[test]
-fn test_big_string_tree() {
-    let tree = StringTree::load("resources/BIOfid/*");
-    process_test_file(&tree, Option::from(5));
-}
-
-#[test]
-fn test_big_multi_tree() {
-    let tree = MultiTree::load("resources/BIOfid/*");
-    process_test_file(&tree, Option::from(5));
-}
-
-#[test]
-fn test_big_multi_balanced() {
-    // let tree = MultiTree::load_balanced("resources/BIOfid/taxa_*", 500_000);
-    let mut filter_list = read_lines("resources/filter_de.txt");
-    filter_list.sort_unstable();
-
-    let mut tree = MultiTree::default();
-    tree.add_balanced("resources/taxa/_current/taxon/*.list", false, true, Option::from(&filter_list));
-    tree.add_vernacular("resources/taxa/_current/vernacular/*.list", Option::from(&filter_list));
-    let tree = tree;
-    process_test_file(&tree, Option::from(5));
-}
-
-//
-// #[test]
-// fn test_small() {
-//     let max_len = 5;
-//     let tree = load("resources/taxa.txt".to_string());
-//
-//     println!("Loading test file..");
-//     let text = read_lines("resources/216578.txt").unwrap()
-//         .map(|line| line.unwrap().trim().to_string())
-//         .collect::<Vec<String>>()
-//         .join(" ");
-//     let (offsets, slices) = split_with_indices(&text);
-//
-//     println!("Iterating over all words..");
-//     let results: Vec<Result<Vec<_>, _>> = slices.par_windows(max_len)
-//         .map(|slice| tree.traverse(VecDeque::from(slice.to_vec())))
-//         .collect();
-//
-//     offsets.windows(max_len).into_iter().zip(results.into_iter()).for_each(
-//         |(offsets, results)| if let Ok(results) = results {
-//             let start = offsets[0].0;
-//             for result in results {
-//                 let end = offsets[result.1.len() - 1].1;
-//                 println!("{:?} ({},{}) -> {:}", result.1.join(" "), start, end, result.0)
-//             }
-//         }
-//     )
-//     // {
-//     //     if let Ok(result) = tree.traverse(VecDeque::from(slice.clone())) {
-//     //         println!("Default: '{}' -> {:?}", slice.clone().join(" "), result);
-//     //     }
-//     // }
-// }
-//
-// #[test]
-// fn test_large_single() {
-//     let max_len = 5;
-//     let tree = load("resources/taxa/".to_string());
-//
-//     println!("Loading test file..");
-//     let text = read_lines("resources/216578.txt").unwrap()
-//         .map(|line| line.unwrap().trim().to_string())
-//         .collect::<Vec<String>>()
-//         .join(" ");
-//     let (offsets, slices) = split_with_indices(&text);
-//
-//     println!("Iterating over all words..");
-//     let results: Vec<Result<Vec<_>, _>> = slices.par_windows(max_len)
-//         .map(|slice| tree.traverse(VecDeque::from(slice.to_vec())))
-//         .collect();
-//
-//     offsets.windows(max_len).into_iter().zip(results.into_iter()).for_each(
-//         |(offsets, results)| if let Ok(results) = results {
-//             let start = offsets[0].0;
-//             for result in results {
-//                 let end = offsets[result.1.len() - 1].1;
-//                 println!("{:?} ({},{}) -> {:}", result.1.join(" "), start, end, result.0)
-//             }
-//         }
-//     )
-// }
-//
-//
-//
-// #[test]
-// fn test_symspell_small_taxa() {
-//     let mut max_len = 5;
-//     let (tree, symspell) = load_symspell("resources/taxa.txt".to_string(), "resources/de-100k.txt");
-//
-//     println!("Loading test file..");
-//     let text = read_lines("resources/216578.txt").unwrap()
-//         .map(|line| line.unwrap().trim().to_string())
-//         .collect::<Vec<String>>()
-//         .join(" ")
-//         .to_lowercase();
-//     let text = text.split(" ")
-//         .collect::<Vec<&str>>();
-//     let iter_len = text.len() - max_len;
-//
-//     println!("Iterating over all words..");
-//     for i in 0..iter_len {
-//         let slice = text.get(i..i + max_len + 1).unwrap().to_vec();
-//         if let Ok(result) = tree.traverse(VecDeque::from(slice.clone())) {
-//             println!("Default: '{}' -> {:?}", slice.clone().join(" "), result);
-//         }
-//
-//         let sres = symspell.lookup_compound(text.get(i..i + max_len + 1).unwrap().join(" ").as_str(), 2);
-//         let sslice = sres[0].term.split(" ").collect::<Vec<&str>>();
-//         if let Ok(result) = tree.traverse(VecDeque::from(sslice.clone())) {
-//             println!("SymSpell: '{}' -> '{}' -> {:?}", slice.join(" "), sslice.join(" "), result);
-//         }
-//     }
-// }

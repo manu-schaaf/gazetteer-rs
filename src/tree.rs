@@ -1,5 +1,8 @@
 use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
+use std::collections::btree_map::OccupiedError;
 use std::collections::vec_deque::VecDeque;
+use std::hash::{Hash, Hasher};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use ngrams::Ngram;
@@ -22,7 +25,7 @@ pub enum ResultSelection {
 
 #[cfg_attr(feature = "server", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum MatchType {
     None,
     Full,
@@ -31,11 +34,17 @@ pub enum MatchType {
 
 #[cfg_attr(feature = "server", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Match {
     match_type: MatchType,
     match_string: String,
     match_uri: String,
+}
+
+impl Hash for Match {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.match_uri.hash(state);
+    }
 }
 
 impl Match {
@@ -75,9 +84,130 @@ pub trait SearchTree: Sync + Send {
     fn default() -> Self
         where Self: Sized;
 
-    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<Match>)>, String>;
+    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
+        let files: Vec<String> = get_files(root_path);
+        println!("Found {} files", files.len());
 
-    fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, Vec<Match>, usize, usize)> {
+        let pb = ProgressBar::new(files.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Loading Input Files {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+        let mut lines = parse_files(files, Option::from(&pb), filter_list);
+
+        if generate_ngrams {
+            let ngrams = Self::generate_ngrams(&lines);
+
+            let pb = ProgressBar::new(lines.len() as u64);
+            pb.set_style(ProgressStyle::with_template(
+                "Loading n-grams {bar:40} {pos}/{len} {msg}"
+            ).unwrap());
+            self.load_lines(ngrams, Some(&pb));
+            pb.finish_with_message("Done");
+        }
+
+        if generate_abbrv {
+            let abbreviations = Self::generate_abbreviations(&lines);
+
+            let pb = ProgressBar::new(lines.len() as u64);
+            pb.set_style(ProgressStyle::with_template(
+                "Loading abbreviations {bar:40} {pos}/{len} {msg}"
+            ).unwrap());
+            self.load_lines(abbreviations, Some(&pb));
+            pb.finish_with_message("Done");
+        }
+
+        let pb = ProgressBar::new(lines.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Loading lines {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+        self.load_lines(lines, Some(&pb));
+        pb.finish_with_message("Done");
+    }
+
+    fn generate_ngrams(lines: &Vec<(String, String)>) -> Vec<(String, String)> {
+        let filtered = lines.par_iter()
+            .filter(|(taxon_name, _)| split_with_indices(&taxon_name).0.len() > 2)
+            .collect::<Vec<&(String, String)>>();
+
+        let pb = ProgressBar::new(filtered.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Generating N-Grams {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+
+        let mut ngrams = filtered.par_iter()
+            .map(|(taxon_name, uri)| {
+                let mut result = Vec::new();
+                let ngrams = split_with_indices(&taxon_name).0.into_iter()
+                    .ngrams(2)
+                    .pad()
+                    .collect::<Vec<Vec<&str>>>();
+                for ngram in ngrams {
+                    // Check whether any part is an abbreviation
+                    if ngram.iter().all(|el| el.len() > 2) {
+                        result.push((ngram.join(" "), String::from(uri)));
+                    }
+                }
+                pb.inc(1);
+                result
+            })
+            .flatten()
+            .collect::<Vec<(String, String)>>();
+
+        pb.finish_with_message(format!("Adding {} n-grams", ngrams.len()));
+        ngrams
+    }
+
+    fn generate_abbreviations(lines: &Vec<(String, String)>) -> Vec<(String, String)> {
+        let filtered = lines.par_iter()
+            .filter(|(taxon_name, _)| taxon_name.split(" ").collect::<Vec<_>>().len() > 1)
+            .collect::<Vec<&(String, String)>>();
+
+        let pb = ProgressBar::new(filtered.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Generating Abbreviations {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+
+        let mut abbrevations = filtered.par_iter()
+            .map(|(taxon_name, uri)| {
+                let mut result = Vec::new();
+
+                let string = taxon_name.clone();
+                let clone = string.split(" ").collect::<Vec<_>>();
+                let head = String::from(clone[0]);
+                let first_char = head.chars().next().unwrap().to_string();
+                let mut abbrv = vec![first_char.as_str()];
+                abbrv.extend_from_slice(&clone[1..]);
+                result.push((abbrv.join(" "), String::from(uri)));
+
+                pb.inc(1);
+                result
+            })
+            .flatten()
+            .collect::<Vec<(String, String)>>();
+
+        pb.finish_with_message("Done");
+        abbrevations
+    }
+
+    fn load_lines(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>);
+
+    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &HashSet<Match>)>, String> {
+        let vec = self.traverse_internal(values, Vec::new(), Vec::new());
+        if vec.len() > 0 {
+            Ok(vec)
+        } else {
+            Err(String::from("No matches found"))
+        }
+    }
+
+    fn traverse_internal<'a>(
+        &'a self,
+        values: VecDeque<&'a str>,
+        matched_string_buffer: Vec<&'a str>,
+        results: Vec<(Vec<&'a str>, &'a HashSet<Match>)>,
+    ) -> Vec<(Vec<&'a str>, &'a HashSet<Match>)>;
+
+    fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, HashSet<Match>, usize, usize)> {
         let result_selection = result_selection.unwrap_or(&ResultSelection::Longest);
         let max_len = max_len.unwrap_or(5 as usize);
 
@@ -111,7 +241,7 @@ pub trait SearchTree: Sync + Send {
                         vec![(result.0.join(" "), result.1.clone(), start, end)]
                     }
                     ResultSelection::Longest => {
-                        let mut result = (Vec::new(), &Vec::new());
+                        let mut result = (Vec::new(), &HashSet::new());
                         for t in results {
                             if t.0.len() > result.0.len() {
                                 result = t;
@@ -123,7 +253,7 @@ pub trait SearchTree: Sync + Send {
                 }
             })
             .flatten()
-            .collect::<Vec<(String, Vec<Match>, usize, usize)>>();
+            .collect::<Vec<(String, HashSet<Match>, usize, usize)>>();
 
         // results.dedup_by(|b, a| b.2 <= a.3);
         // TODO: This removes fully covered entities that end on the same character as their covering entities but not partial overlaps
@@ -134,9 +264,97 @@ pub trait SearchTree: Sync + Send {
 }
 
 #[derive(Debug, Clone)]
+pub struct HashMapSearchTree {
+    pub matches: HashSet<Match>,
+    pub children: HashMap<String, HashMapSearchTree>,
+}
+
+impl SearchTree for HashMapSearchTree {
+    fn default() -> Self where Self: Sized {
+        HashMapSearchTree {
+            matches: HashSet::new(),
+            children: HashMap::new(),
+        }
+    }
+
+    fn load_lines(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
+        for (taxon, uri) in lines {
+            self.insert(VecDeque::from(split_with_indices(&taxon.clone()).0), taxon, uri);
+
+            if let Some(pb) = pb {
+                pb.inc(1)
+            }
+        }
+    }
+
+    fn traverse_internal<'a>(
+        &'a self,
+        mut values: VecDeque<&'a str>,
+        mut matched_string_buffer: Vec<&'a str>,
+        mut results: Vec<(Vec<&'a str>, &'a HashSet<Match>)>,
+    ) -> Vec<(Vec<&'a str>, &'a HashSet<Match>)> {
+        let value = values.pop_front().expect("");
+        match self.children.get(&value.to_lowercase()) {
+            Some(child) => {
+                matched_string_buffer.push(value);
+                if !child.matches.is_empty() {
+                    results.push((matched_string_buffer.clone(), &child.matches));
+                }
+
+                if !values.is_empty() {
+                    child.traverse_internal(values, matched_string_buffer, results)
+                } else {
+                    results
+                }
+            }
+            None => {
+                results
+            }
+        }
+    }
+}
+
+impl HashMapSearchTree {
+    fn from(match_string: String, match_uri: String) -> Self {
+        Self {
+            matches: HashSet::from([Match::full(match_string, match_uri)]),
+            children: HashMap::new(),
+        }
+    }
+
+    fn child() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, mut values: VecDeque<&str>, match_string: String, match_uri: String) {
+        let value = values.pop_front().unwrap().to_lowercase();
+        match self.children.get_mut(&value.to_lowercase()) {
+            Some(mut child) => {
+                if values.is_empty() {
+                    child.matches.insert(Match::full(match_string, match_uri));
+                } else {
+                    child.insert(values, match_string, match_uri);
+                }
+            }
+            None => {
+                if values.is_empty() {
+                    self.children.insert(value, HashMapSearchTree::from(match_string, match_uri));
+                } else {
+                    match self.children.try_insert(value, HashMapSearchTree::child()) {
+                        Ok(child) => { child.insert(values, match_string, match_uri); }
+                        Err(err) => { panic!("{:?}", err) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[deprecated = "Superseded by HashMapSearchTree"]
+#[derive(Debug, Clone)]
 pub struct BinarySearchTree {
     pub value: String,
-    pub matches: Vec<Match>,
+    pub matches: HashSet<Match>,
     pub children: Vec<BinarySearchTree>,
 }
 
@@ -144,36 +362,110 @@ impl SearchTree for BinarySearchTree {
     fn default() -> Self {
         Self {
             value: "<ROOT>".to_string(),
-            matches: vec![],
+            matches: HashSet::new(),
             children: vec![],
         }
     }
 
-    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<Match>)>, String> {
-        let vec = self._traverse(values, Vec::new(), Vec::new());
-        if vec.len() > 0 {
-            Ok(vec)
-        } else {
-            Err(String::from("No matches found"))
+    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
+        let files: Vec<String> = get_files(root_path);
+        println!("Found {} files", files.len());
+
+        let pb = ProgressBar::new(files.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Loading Input Files {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+        let mut lines = parse_files(files, Option::from(&pb), filter_list);
+
+        let mut additional: Vec<(String, String)> = Vec::new();
+        if generate_ngrams {
+            additional.append(&mut Self::generate_ngrams(&lines));
+        }
+
+        if generate_abbrv {
+            additional.append(&mut Self::generate_abbreviations(&lines));
+        }
+        lines.append(&mut additional);
+
+        let lines = Self::sort_and_dedup_lines(lines);
+
+        let pb = ProgressBar::new(lines.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Loading lines {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+        self.load_lines(lines, Some(&pb));
+        pb.finish_with_message("Done");
+    }
+
+    fn load_lines(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
+        for (taxon_name, uri) in lines {
+            self.insert(VecDeque::from(split_with_indices(&taxon_name.clone()).0), taxon_name, uri);
+
+            if let Some(pb) = pb {
+                pb.inc(1)
+            }
+        }
+    }
+
+    fn traverse_internal<'a>(
+        &'a self,
+        mut values: VecDeque<&'a str>,
+        mut matched_string_buffer: Vec<&'a str>,
+        mut results: Vec<(Vec<&'a str>, &'a HashSet<Match>)>,
+    ) -> Vec<(Vec<&'a str>, &'a HashSet<Match>)> {
+        let value = values.pop_front().expect("");
+        match self.children.binary_search_by_key(&value.to_lowercase().as_str(), |a| a.get_value()) {
+            Ok(idx) => {
+                matched_string_buffer.push(value);
+                if !self.children[idx].matches.is_empty() {
+                    results.push((matched_string_buffer.clone(), &self.children[idx].matches));
+                }
+
+                if !values.is_empty() {
+                    self.children[idx].traverse_internal(values, matched_string_buffer, results)
+                } else {
+                    results
+                }
+            }
+            Err(_) => {
+                results
+            }
         }
     }
 }
-
 
 impl BinarySearchTree {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             value: "<ROOT>".to_string(),
-            matches: vec![],
+            matches: HashSet::new(),
             children: Vec::with_capacity(capacity),
         }
+    }
+
+    fn with_capacity_from_sorted(capacity: usize, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) -> Self {
+        let mut tree = Self {
+            value: "<ROOT>".to_string(),
+            matches: HashSet::new(),
+            children: Vec::with_capacity(capacity),
+        };
+
+        for (taxon_name, uri) in lines {
+            tree.insert_in_order(VecDeque::from(split_with_indices(&taxon_name.clone()).0), taxon_name, uri);
+
+            if let Some(pb) = pb {
+                pb.inc(1)
+            }
+        }
+
+        tree
     }
 
     fn from(value: &str, match_string: String, match_uri: String) -> Self {
         let value = String::from(value);
         Self {
             value,
-            matches: vec![Match::full(match_string, match_uri)],
+            matches: HashSet::from([Match::full(match_string, match_uri)]),
             children: vec![],
         }
     }
@@ -182,9 +474,23 @@ impl BinarySearchTree {
         let value = String::from(value);
         Self {
             value,
-            matches: vec![],
+            matches: HashSet::new(),
             children: vec![],
         }
+    }
+
+    fn sort_and_dedup_lines(mut lines: Vec<(String, String)>) -> Vec<(String, String)> {
+        let pb = get_spinner();
+        pb.set_message(format!("Sorting {} lines..", lines.len()));
+        lines.sort();
+        pb.finish();
+
+        let pb = get_spinner();
+        pb.set_message(format!("Dropping duplicates.."));
+        lines.dedup();
+        pb.finish();
+
+        lines
     }
 
     fn get_value(&self) -> &String {
@@ -196,7 +502,7 @@ impl BinarySearchTree {
         match self.children.binary_search_by_key(&value, |a| a.get_value()) {
             Ok(idx) => {
                 if values.is_empty() {
-                    self.children[idx]._push_match(Match::full(match_string, match_uri));
+                    self.children[idx].matches.insert(Match::full(match_string, match_uri));
                 } else {
                     self.children[idx].insert(values, match_string, match_uri);
                 }
@@ -212,24 +518,11 @@ impl BinarySearchTree {
         }
     }
 
-    pub fn _push_match(&mut self, mtch: Match) {
-        match self.matches.binary_search_by_key(&&mtch.match_uri, |el| &el.match_uri) {
-            Ok(_) => {
-                // This should not happen, unless there is a duplicate in the input data
-                // or the same (match_string, match_uri) pair occurs with a different MatchType
-                // TODO: Choose behavior on collision with different MatchType
-            }
-            Err(i) => {
-                self.matches.insert(i, mtch);
-            }
-        }
-    }
-
     pub fn insert_in_order(&mut self, mut values: VecDeque<&str>, match_string: String, match_uri: String) {
         let value = &values.pop_front().unwrap().to_lowercase();
-        if let Some(last_child) = self.children.last_mut() && last_child.value.eq(value) {
+        if let Some(mut last_child) = self.children.last_mut() && last_child.value.eq(value) {
             if values.is_empty() {
-                last_child._push_match(Match::full(match_string, match_uri));
+                last_child.matches.insert(Match::full(match_string, match_uri));
             } else {
                 last_child.insert_in_order(values, match_string, match_uri);
             }
@@ -298,54 +591,9 @@ impl BinarySearchTree {
         //     }
         // }
     }
-
-    fn _load_lines(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
-        for (taxon_name, uri) in lines {
-            self.insert(VecDeque::from(split_with_indices(&taxon_name.clone()).0), taxon_name, uri);
-
-            if let Some(pb) = pb {
-                pb.inc(1)
-            }
-        }
-    }
-
-    fn _load_lines_in_order(&mut self, lines: Vec<(String, String)>, pb: Option<&ProgressBar>) {
-        for (taxon_name, uri) in lines {
-            self.insert_in_order(VecDeque::from(split_with_indices(&taxon_name.clone()).0), taxon_name, uri);
-
-            if let Some(pb) = pb {
-                pb.inc(1)
-            }
-        }
-    }
-
-    fn _traverse<'a>(
-        &'a self,
-        mut values: VecDeque<&'a str>,
-        mut matched_string_buffer: Vec<&'a str>,
-        mut results: Vec<(Vec<&'a str>, &'a Vec<Match>)>,
-    ) -> Vec<(Vec<&'a str>, &'a Vec<Match>)> {
-        let value = values.pop_front().expect("");
-        match self.children.binary_search_by_key(&value.to_lowercase().as_str(), |a| a.get_value()) {
-            Ok(idx) => {
-                matched_string_buffer.push(value);
-                if !self.children[idx].matches.is_empty() {
-                    results.push((matched_string_buffer.clone(), &self.children[idx].matches));
-                }
-
-                if !values.is_empty() {
-                    self.children[idx]._traverse(values, matched_string_buffer, results)
-                } else {
-                    results
-                }
-            }
-            Err(_) => {
-                results
-            }
-        }
-    }
 }
 
+#[deprecated = "Superseded by HashMapSearchTree"]
 #[derive(Debug, Clone)]
 pub struct MultiTree {
     pub children: Vec<BinarySearchTree>,
@@ -360,127 +608,10 @@ impl SearchTree for MultiTree {
         }
     }
 
-    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &Vec<Match>)>, String> {
-        let results = self.children.par_iter()
-            .filter_map(|tree| tree.traverse(values.clone()).ok())
-            .flatten()
-            .collect::<Vec<(Vec<&str>, &Vec<Match>)>>();
-        if results.is_empty() {
-            Err(String::from("No matches found"))
-        } else {
-            Ok(results)
-        }
-    }
-}
-
-impl MultiTree {
-    fn load(root_path: &str) -> Self {
-        let mut root = Self::default();
-        root.add_balanced(root_path, false, false, None);
-        root
-    }
-
-    fn from_taxon_list(root_path: &str, each_size: i32, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) -> Self {
-        let mut root = Self {
-            children: vec![],
-            each_size: each_size as usize,
-        };
-
-        root.add_balanced(root_path, generate_ngrams, generate_abbrv, filter_list);
-
-        root
-    }
-
-    pub fn add_balanced(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
-        self._load_balanced(root_path, self.each_size as usize, generate_ngrams, generate_abbrv, filter_list);
-    }
-
-    fn _load_balanced<'data>(&mut self, root_path: &str, each_size: usize, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
-        let files: Vec<String> = get_files(root_path);
-        println!("Found {} files", files.len());
-
-        let pb = ProgressBar::new(files.len() as u64);
-        pb.set_style(ProgressStyle::with_template(
-            "Loading Input Files {bar:40} {pos}/{len} {msg}"
-        ).unwrap());
-        let mut lines = parse_files(files, Option::from(&pb), filter_list);
-
-        let mut additional = Vec::new();
-        if generate_ngrams {
-            let filtered = lines.par_iter()
-                .filter(|(taxon_name, _)| split_with_indices(&taxon_name).0.len() > 2)
-                .collect::<Vec<&(String, String)>>();
-            let pb = ProgressBar::new(filtered.len() as u64);
-            pb.set_style(ProgressStyle::with_template(
-                "Generating N-Grams {bar:40} {pos}/{len} {msg}"
-            ).unwrap());
-            let mut ngrams = filtered.par_iter()
-                .map(|(taxon_name, uri)| {
-                    let mut result = Vec::new();
-                    let ngrams = split_with_indices(&taxon_name).0.into_iter()
-                        .ngrams(2)
-                        .pad()
-                        .collect::<Vec<Vec<&str>>>();
-                    for ngram in ngrams {
-                        // Check whether any part is an abbreviation
-                        if ngram.iter().all(|el| el.len() > 2) {
-                            result.push((ngram.join(" "), String::from(uri)));
-                        }
-                    }
-                    pb.inc(1);
-                    result
-                })
-                .flatten()
-                .collect::<Vec<(String, String)>>();
-
-            pb.finish_with_message(format!("Adding {} n-grams", ngrams.len()));
-            additional.append(&mut ngrams);
-        }
-
-        if generate_abbrv {
-            let filtered = lines.par_iter()
-                .filter(|(taxon_name, _)| taxon_name.split(" ").collect::<Vec<_>>().len() > 1)
-                .collect::<Vec<&(String, String)>>();
-            let pb = ProgressBar::new(filtered.len() as u64);
-            pb.set_style(ProgressStyle::with_template(
-                "Generating Abbreviations {bar:40} {pos}/{len} {msg}"
-            ).unwrap());
-            let mut abbrevations = filtered.par_iter()
-                .map(|(taxon_name, uri)| {
-                    let mut result = Vec::new();
-
-                    let string = taxon_name.clone();
-                    let clone = string.split(" ").collect::<Vec<_>>();
-                    let head = String::from(clone[0]);
-                    let first_char = head.chars().next().unwrap().to_string();
-                    let mut abbrv = vec![first_char.as_str()];
-                    abbrv.extend_from_slice(&clone[1..]);
-                    result.push((abbrv.join(" "), String::from(uri)));
-
-                    pb.inc(1);
-                    result
-                })
-                .flatten()
-                .collect::<Vec<(String, String)>>();
-
-            pb.finish_with_message("Done");
-            additional.append(&mut abbrevations);
-        }
-        lines.append(&mut additional);
-
-        let pb = get_spinner();
-        pb.set_message(format!("Sorting {} lines..", lines.len()));
-        lines.sort_unstable();
-        pb.finish();
-        let pb = get_spinner();
-        pb.set_message(format!("Dropping duplicates.."));
-        lines.dedup();
-        pb.finish();
-        let lines = lines;
-
+    fn load_lines(&mut self, lines: Vec<(String, String)>, _: Option<&ProgressBar>) {
         let mut start_end: Vec<(usize, usize)> = Vec::new();
-        for start in (0..lines.len()).step_by(each_size) {
-            let size = usize::min(start + each_size, lines.len());
+        for start in (0..lines.len()).step_by(self.each_size) {
+            let size = usize::min(start + self.each_size, lines.len());
             start_end.push((start, size));
         }
 
@@ -490,19 +621,47 @@ impl MultiTree {
             let pb = mp.add(ProgressBar::new((end - start) as u64));
             pb.set_style(ProgressStyle::with_template(&format!(
                 "Building Split {:>2}/{} {{bar:40}} {{pos}}/{{len}} {{msg}}",
-                end / each_size,
-                lines.len() / each_size
+                end / self.each_size,
+                lines.len() / self.each_size
             )).unwrap());
             tasks.push((&lines[start..end], pb));
         }
 
         let mut results = tasks.par_iter()
             .map(|(lines, pb)| {
-                let mut tree = BinarySearchTree::with_capacity(each_size);
-                tree._load_lines_in_order(Vec::from(*lines), Option::from(pb));
+                let tree = BinarySearchTree::with_capacity_from_sorted(self.each_size, Vec::from(*lines), Option::from(pb));
                 pb.finish();
                 tree
             }).collect::<Vec<BinarySearchTree>>();
         self.children.append(&mut results);
+    }
+
+    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &HashSet<Match>)>, String> {
+        let results = self.children.par_iter()
+            .filter_map(|tree| tree.traverse(values.clone()).ok())
+            .flatten()
+            .collect::<Vec<(Vec<&str>, &HashSet<Match>)>>();
+        if results.is_empty() {
+            Err(String::from("No matches found"))
+        } else {
+            Ok(results)
+        }
+    }
+
+    fn traverse_internal<'a>(&'a self, values: VecDeque<&'a str>, matched_string_buffer: Vec<&'a str>, results: Vec<(Vec<&'a str>, &'a HashSet<Match>)>) -> Vec<(Vec<&'a str>, &'a HashSet<Match>)> {
+        unimplemented!()
+    }
+}
+
+impl MultiTree {
+    fn with_each_size(root_path: &str, each_size: i32, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) -> Self {
+        let mut root = Self {
+            children: vec![],
+            each_size: each_size as usize,
+        };
+
+        root.load(root_path, generate_ngrams, generate_abbrv, filter_list);
+
+        root
     }
 }

@@ -14,7 +14,7 @@ use rocket::serde::json::{Json, Value};
 use rocket::serde::json::serde_json::json;
 use rocket_dyn_templates::{context, Template};
 
-use gazetteer::tree::{MultiTree, ResultSelection, SearchTree};
+use gazetteer::tree::{HashMapSearchTree, ResultSelection, SearchTree};
 use gazetteer::util::read_lines;
 
 #[cfg(test)]
@@ -55,7 +55,7 @@ fn index() -> Template {
 }
 
 #[post("/", data = "<form>")]
-fn submit<'r>(mut form: Form<Contextual<'r, Submit<'r>>>, tree: &State<MultiTree>) -> (Status, Template) {
+fn submit<'r>(mut form: Form<Contextual<'r, Submit<'r>>>, tree: &State<HashMapSearchTree>) -> (Status, Template) {
     let template = match form.value {
         Some(ref submission) => {
             // println!("submission: {:#?}", submission);
@@ -87,7 +87,7 @@ fn submit<'r>(mut form: Form<Contextual<'r, Submit<'r>>>, tree: &State<MultiTree
 #[post("/tag", format = "json", data = "<request>")]
 async fn tag(
     request: Json<Request<'_>>,
-    tree: &State<MultiTree>,
+    tree: &State<HashMapSearchTree>,
 ) -> Value {
     let result_selection = match &request.result_selection {
         Some(sel) => match sel.as_ref() {
@@ -125,10 +125,10 @@ fn rocket() -> _ {
     let mut filter_list = read_lines("resources/filter_de.txt");
     filter_list.sort_unstable();
 
-    let mut tree = MultiTree::default();
-    // tree.add_balanced("resources/taxa/_old/taxa_2019_09_27.txt", false, true, Option::from(&filter_list));
-    tree.add_balanced("resources/taxon/*.list", false, true, Option::from(&filter_list));
-    tree.add_balanced("resources/vernacular/*.list", false, false, Option::from(&filter_list));
+    let mut tree = HashMapSearchTree::default();
+    tree.load("resources/taxon/*.list", false, true, Option::from(&filter_list));
+    tree.load("resources/vernacular/*.list", false, false, Option::from(&filter_list));
+    let tree = tree;
 
     println!("Fininshed loading gazetteer.");
 

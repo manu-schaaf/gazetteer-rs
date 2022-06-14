@@ -1,19 +1,18 @@
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::collections::vec_deque::VecDeque;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{ ProgressBar, ProgressStyle};
+use itertools::Itertools;
 use ngrams::Ngram;
 use rayon::prelude::*;
 #[cfg(feature = "server")]
-use rocket::FromFormField;
-use rocket::http::ext::IntoCollection;
+use rocket::form::{FromForm, FromFormField};
 #[cfg(feature = "server")]
 use rocket::serde::{Deserialize, Serialize};
 
-use crate::util::{get_files, get_spinner, parse_files, split_with_indices};
+use crate::util::{get_files, parse_files, split_with_indices, Tokenizer};
 
 #[cfg_attr(feature = "server", derive(FromFormField, Serialize, Deserialize))]
 #[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
@@ -102,6 +101,14 @@ pub trait SearchTree: Sync + Send {
         ).unwrap());
         let mut lines = parse_files(files, Option::from(&pb), filter_list);
 
+        let tokenizer = Tokenizer::default();
+
+        let (taxa, _, _): (Vec<String>, Vec<String>, Vec<MatchType>) = lines.clone().into_iter().multiunzip();
+        let segmented = tokenizer.encode_batch(taxa).unwrap();
+        let lines = segmented.into_iter().zip(lines.into_iter())
+            .map(|(segments, (taxon, uri, match_type))| (segments.0, taxon.clone(), uri.clone(), match_type.clone()))
+            .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
+
         if generate_ngrams {
             let ngrams = Self::generate_ngrams(&lines);
 
@@ -128,14 +135,14 @@ pub trait SearchTree: Sync + Send {
         pb.set_style(ProgressStyle::with_template(
             "Loading lines {bar:40} {pos}/{len} {msg}"
         ).unwrap());
-        self.load_lines(lines.into_iter().map(|line| (line.0, line.1, MatchType::Full)).collect(), Some(&pb));
+        self.load_lines(lines, Some(&pb));
         pb.finish_with_message("Done");
     }
 
-    fn generate_ngrams(lines: &Vec<(String, String, MatchType)>) -> Vec<(String, String, MatchType)> {
+    fn generate_ngrams(lines: &Vec<(Vec<String>, String, String, MatchType)>) -> Vec<(Vec<String>, String, String, MatchType)> {
         let filtered = lines.par_iter()
-            .filter(|(taxon_name, _, _)| split_with_indices(&taxon_name).0.len() > 2)
-            .collect::<Vec<&(String, String, MatchType)>>();
+            .filter(|(segments, _, _, _)| segments.len() > 2)
+            .collect::<Vec<_>>();
 
         let pb = ProgressBar::new(filtered.len() as u64);
         pb.set_style(ProgressStyle::with_template(
@@ -143,32 +150,32 @@ pub trait SearchTree: Sync + Send {
         ).unwrap());
 
         let mut ngrams = filtered.par_iter()
-            .map(|(taxon_name, uri, _)| {
+            .map(|(segments, taxon_name, uri, _)| {
                 let mut result = Vec::new();
-                let ngrams = split_with_indices(&taxon_name).0.into_iter()
+                let ngrams = segments.clone().into_iter()
                     .ngrams(2)
                     .pad()
-                    .collect::<Vec<Vec<&str>>>();
+                    .collect::<Vec<Vec<String>>>();
                 for ngram in ngrams {
                     // Check whether any part is an abbreviation
                     if ngram.iter().all(|el| el.len() > 2) {
-                        result.push((ngram.join(" "), String::from(uri), MatchType::NGram));
+                        result.push((ngram, String::from(taxon_name), String::from(uri), MatchType::NGram));
                     }
                 }
                 pb.inc(1);
                 result
             })
             .flatten()
-            .collect::<Vec<(String, String, MatchType)>>();
+            .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
 
         pb.finish_with_message(format!("Adding {} n-grams", ngrams.len()));
         ngrams
     }
 
-    fn generate_abbreviations(lines: &Vec<(String, String, MatchType)>) -> Vec<(String, String, MatchType)> {
+    fn generate_abbreviations(lines: &Vec<(Vec<String>, String, String, MatchType)>) -> Vec<(Vec<String>, String, String, MatchType)> {
         let filtered = lines.par_iter()
-            .filter(|(taxon_name, _, _)| taxon_name.split(" ").collect::<Vec<_>>().len() > 1)
-            .collect::<Vec<&(String, String, MatchType)>>();
+            .filter(|(segments, _, _, _)| segments.len() > 1)
+            .collect::<Vec<_>>();
 
         let pb = ProgressBar::new(filtered.len() as u64);
         pb.set_style(ProgressStyle::with_template(
@@ -176,28 +183,26 @@ pub trait SearchTree: Sync + Send {
         ).unwrap());
 
         let mut abbrevations = filtered.par_iter()
-            .map(|(taxon_name, uri, _)| {
+            .map(|(segments, taxon_name, uri, _)| {
                 let mut result = Vec::new();
 
-                let string = taxon_name.clone();
-                let clone = string.split(" ").collect::<Vec<_>>();
-                let head = String::from(clone[0]);
+                let head = String::from(&segments[0]);
                 let first_char = head.chars().next().unwrap().to_string();
-                let mut abbrv = vec![first_char.as_str()];
-                abbrv.extend_from_slice(&clone[1..]);
-                result.push((abbrv.join(" "), String::from(uri), MatchType::Abbreviated));
+                let mut abbrv = vec![first_char];
+                abbrv.extend_from_slice(&segments[1..]);
+                result.push((abbrv, String::from(taxon_name), String::from(uri), MatchType::Abbreviated));
 
                 pb.inc(1);
                 result
             })
             .flatten()
-            .collect::<Vec<(String, String, MatchType)>>();
+            .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
 
         pb.finish_with_message("Done");
         abbrevations
     }
 
-    fn load_lines(&mut self, lines: Vec<(String, String, MatchType)>, pb: Option<&ProgressBar>);
+    fn load_lines(&mut self, lines: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>);
 
     fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &HashSet<Match>)>, String> {
         let vec = self.traverse_internal(values, Vec::new(), Vec::new());
@@ -285,9 +290,9 @@ impl SearchTree for HashMapSearchTree {
         }
     }
 
-    fn load_lines(&mut self, lines: Vec<(String, String, MatchType)>, pb: Option<&ProgressBar>) {
-        for (taxon, uri, match_type) in lines {
-            self.insert(VecDeque::from(split_with_indices(&taxon.clone()).0), taxon, uri, match_type);
+    fn load_lines(&mut self, lines: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>) {
+        for (segments, taxon, uri, match_type) in lines {
+            self.insert(VecDeque::from(segments), taxon, uri, match_type);
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -334,7 +339,7 @@ impl HashMapSearchTree {
         Self::default()
     }
 
-    pub fn insert(&mut self, mut values: VecDeque<&str>, match_string: String, match_uri: String, match_type: MatchType) {
+    pub fn insert(&mut self, mut values: VecDeque<String>, match_string: String, match_uri: String, match_type: MatchType) {
         let value = values.pop_front().unwrap().to_lowercase();
         match self.children.get_mut(&value.to_lowercase()) {
             Some(mut child) => {

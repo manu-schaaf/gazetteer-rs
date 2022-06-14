@@ -1,4 +1,3 @@
-[default]
 filter_path = "resources/filter_de.txt"
 generate_abbrv = false
 generate_ngrams = false

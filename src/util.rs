@@ -2,24 +2,22 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io;
 use std::io::BufRead;
-use std::io::{BufRead, Lines};
-use std::iter::Map;
 use std::path::Path;
-use std::slice::Iter;
 
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use crate::tree::MatchType;
-use tokenizers::{Decoder, Encoding, ModelWrapper, Normalizer, NormalizerWrapper, OffsetReferential, Offsets, OffsetType, PostProcessor, PostProcessorWrapper, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior, Tokenizer, TokenizerBuilder, TokenizerImpl};
-use tokenizers::models::wordlevel::WordLevel;
+use tokenizers::{Decoder, EncodeInput, Encoding, ModelWrapper, NormalizedString, Normalizer, NormalizerWrapper, OffsetReferential, Offsets, OffsetType, PostProcessor, PostProcessorWrapper, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior};
 use tokenizers::normalizers::NFKC;
+use tokenizers::parallelism::MaybeParallelIterator;
 use tokenizers::pre_tokenizers::punctuation::Punctuation;
 use tokenizers::pre_tokenizers::sequence::Sequence;
 use tokenizers::pre_tokenizers::whitespace::Whitespace;
 
-pub fn read_lines<P>(filename: P) -> Vec<String>
-    where P: AsRef<Path>, {
+use crate::tree::MatchType;
+
+pub fn read_lines<P>(filename: P)-> Vec<String>
+    where P: AsRef<Path> {
     let file = File::open(filename).expect("Could not open file");
     let lines = io::BufReader::new(file).lines();
     lines.filter_map(|line| line.ok()).collect::<Vec<String>>()
@@ -108,50 +106,56 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
         .filter(|(taxon, _, _)| {
             filter_list.len() == 0 || !filter_list.contains(&taxon.to_lowercase())
         })
-        .collect::<Vec<(String, String)>>()
+        .collect::<Vec<(String, String, MatchType)>>()
 }
 
-
-pub(crate) struct Segmenter {
-    tokenizer: Tokenizer,
+pub struct Tokenizer {
+    normalizer: NFKC,
+    pre_tokenizer: Sequence,
 }
 
-impl Segmenter {
-    pub(crate) fn default() -> Segmenter {
-        let mut tk = Tokenizer::new(WordLevel::default());
-        tk.with_normalizer(NFKC::default());
-        tk.with_pre_tokenizer(Sequence::new(vec![
-            PreTokenizerWrapper::Punctuation(Punctuation::new(SplitDelimiterBehavior::Removed)),
-            PreTokenizerWrapper::Whitespace(Whitespace::default()),
-        ]));
-        let tk = tk;
-        Self {
-            tokenizer: tk
+impl Tokenizer {
+    pub fn default() -> Tokenizer {
+        Tokenizer {
+            normalizer: NFKC::default(),
+            pre_tokenizer: Sequence::new(vec![
+                PreTokenizerWrapper::Punctuation(Punctuation::new(SplitDelimiterBehavior::Removed)),
+                PreTokenizerWrapper::Whitespace(Whitespace::default()),
+            ]),
         }
     }
 
-    pub fn pipe(&self, strings: Vec<String>) -> Result<Vec<(&[String], &[Offsets])>, &'static str> {
-        if let Ok(encodings) = self.tokenizer.encode_batch(strings, false) {
-            Ok(encodings.iter().map(|e| (e.get_tokens(), e.get_offsets())).collect::<Vec<(&[String], &[Offsets])>>())
-        } else {
-            Err("")
+    pub fn tokenize(&self, string: String) -> (Vec<String>, Vec<(usize, usize)>) {
+        let mut string = PreTokenizedString::from(string);
+        string.normalize(|s| self.normalizer.normalize(s)).expect("Failed during normalization!");
+        self.pre_tokenizer.pre_tokenize(&mut string).expect("Failed during pre-tokenization!");
+        let mut tokens = Vec::new();
+        let mut offsets = Vec::new();
+        for (slice, offset, _) in string.get_splits(OffsetReferential::Original, OffsetType::Char) {
+            tokens.push(String::from(slice));
+            offsets.push((offset.0, offset.1));
         }
+        (tokens, offsets)
     }
 
-    // pub fn tokenize(&self, string: &str) -> (Vec<String>, Vec<(usize, usize)>) {
-    //     let mut string = PreTokenizedString::from(string);
-    //     string.normalize(|s| self.normalizer.normalize(s)).expect("Failed during normalization!");
-    //     self.pre_tokenizer.pre_tokenize(&mut string).expect("Failed during pre-tokenization!");
-    //     let mut tokens = Vec::new();
-    //     let mut offsets = Vec::new();
-    //     for (slice, offset, _) in string.get_splits(OffsetReferential::Original, OffsetType::Char) {
-    //         tokens.push(String::from(slice));
-    //         offsets.push((offset.0, offset.1));
-    //     }
-    //     (tokens, offsets)
-    //     // .into_iter()
-    //     // .map(
-    //     //     |(token, offset, _)| (String::from(token), (offset.0, offset.1))
-    //     // ).collect()
-    // }
+    pub fn encode_batch(
+        &self,
+        inputs: Vec<String>,
+    ) -> Result<Vec<(Vec<String>, Vec<(usize, usize)>)>, String>
+    {
+        let pb = ProgressBar::new(inputs.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Tokenizing Inputs {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+        let encodings = inputs
+            .into_par_iter()
+            .map(|input| {
+                let tokenized = self.tokenize(input);
+                pb.inc(1);
+                tokenized
+            })
+            .collect::<Vec<(Vec<String>, Vec<(usize, usize)>)>>();
+        pb.finish_with_message("Done");
+        Ok(encodings)
+    }
 }

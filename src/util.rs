@@ -7,6 +7,7 @@ use std::path::Path;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
+use crate::tree::MatchType;
 
 pub fn read_lines<P>(filename: P) -> Vec<String>
     where P: AsRef<Path>, {
@@ -70,7 +71,7 @@ pub(crate) fn get_spinner() -> ProgressBar {
     pb
 }
 
-pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
+pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String, MatchType)> {
     let filter_list: HashSet<String> = filter_list
         .map_or_else(
             || HashSet::new(),
@@ -93,10 +94,10 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
             let split = line.split('\t').collect::<Vec<&str>>();
             let taxon = String::from(split[0]);
             let uri = String::from(split[1]);
-            (taxon, uri)
+            (taxon, uri, MatchType::Full)
         })
-        .filter(|(taxon, _)| {
+        .filter(|(taxon, _, _)| {
             filter_list.len() == 0 || !filter_list.contains(&taxon.to_lowercase())
         })
-        .collect::<Vec<(String, String)>>()
+        .collect::<Vec<(String, String, MatchType)>>()
 }

@@ -3,7 +3,7 @@ use std::collections::vec_deque::VecDeque;
 
 use rocket::http::ext::IntoCollection;
 
-use gazetteer::tree::{BinarySearchTree, Match, MultiTree, ResultSelection, SearchTree};
+use gazetteer::tree::{BinarySearchTree, Match, MatchType, MultiTree, ResultSelection, SearchTree};
 use gazetteer::util::{read_lines, split_with_indices};
 
 // #[test]
@@ -47,8 +47,8 @@ use gazetteer::util::{read_lines, split_with_indices};
 fn test_sanitize() {
     let mut tree = BinarySearchTree::default();
 
-    tree.insert(VecDeque::from(split_with_indices("Puffinus").0), String::from("Puffinus"), String::from("URI:short"));
-    tree.insert(VecDeque::from(split_with_indices("p. puffinus").0), String::from("p. puffinus"), String::from("URI:abbrv"));
+    tree.insert(VecDeque::from(split_with_indices("Puffinus").0), String::from("Puffinus"), String::from("URI:short"), MatchType::Full);
+    tree.insert(VecDeque::from(split_with_indices("p. puffinus").0), String::from("p. puffinus"), String::from("URI:abbrv"), MatchType::Full);
 
     let result = tree.search(
         "ABC Puffinus p. puffinus X Y Z",
@@ -82,7 +82,7 @@ fn test_sample() {
         let s = String::from(s);
         let uri = String::from(uri);
         let v: VecDeque<&str> = s.split(' ').collect::<VecDeque<&str>>();
-        tree.insert(v, s, uri);
+        tree.insert(v, s, uri, MatchType::Full);
     }
     println!("{:?}", tree.traverse(String::from("An xyz").split(' ').collect::<VecDeque<&str>>()));
     println!("{:?}", tree.traverse(String::from("An example").split(' ').collect::<VecDeque<&str>>()));

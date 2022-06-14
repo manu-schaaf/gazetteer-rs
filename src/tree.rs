@@ -97,7 +97,7 @@ pub trait SearchTree: Sync + Send {
 
     fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
         let files: Vec<String> = get_files(root_path);
-        println!("Found {} files", files.len());
+        println!("Found {} files to read", files.len());
 
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(ProgressStyle::with_template(
@@ -107,38 +107,38 @@ pub trait SearchTree: Sync + Send {
 
         let (taxa, _, _): (Vec<String>, Vec<String>, Vec<MatchType>) = lines.clone().into_iter().multiunzip();
         let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> = self.tokenize_batch(taxa.as_slice()).unwrap();
-        let lines = segmented.into_iter().zip(lines.into_iter())
+        let entries = segmented.into_iter().zip(lines.into_iter())
             .map(|(segments, (taxon, uri, match_type))| (segments.0, taxon.clone(), uri.clone(), match_type.clone()))
             .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
 
-        if generate_ngrams {
-            let ngrams = Self::generate_ngrams(&lines);
+        let pb = ProgressBar::new(entries.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Loading Entries {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+        self.load_entries(entries.clone(), Some(&pb));
+        pb.finish_with_message("Done");
 
-            let pb = ProgressBar::new(lines.len() as u64);
+        if generate_ngrams {
+            let ngrams = Self::generate_ngrams(&entries);
+
+            let pb = ProgressBar::new(entries.len() as u64);
             pb.set_style(ProgressStyle::with_template(
                 "Loading n-Grams {bar:40} {pos}/{len} {msg}"
             ).unwrap());
-            self.load_lines(ngrams, Some(&pb));
+            self.load_entries(ngrams, Some(&pb));
             pb.finish_with_message("Done");
         }
 
         if generate_abbrv {
-            let abbreviations = Self::generate_abbreviations(&lines);
+            let abbreviations = Self::generate_abbreviations(&entries);
 
-            let pb = ProgressBar::new(lines.len() as u64);
+            let pb = ProgressBar::new(entries.len() as u64);
             pb.set_style(ProgressStyle::with_template(
                 "Loading Abbreviations {bar:40} {pos}/{len} {msg}"
             ).unwrap());
-            self.load_lines(abbreviations, Some(&pb));
+            self.load_entries(abbreviations, Some(&pb));
             pb.finish_with_message("Done");
         }
-
-        let pb = ProgressBar::new(lines.len() as u64);
-        pb.set_style(ProgressStyle::with_template(
-            "Loading lines {bar:40} {pos}/{len} {msg}"
-        ).unwrap());
-        self.load_lines(lines, Some(&pb));
-        pb.finish_with_message("Done");
     }
 
     fn generate_ngrams(lines: &Vec<(Vec<String>, String, String, MatchType)>) -> Vec<(Vec<String>, String, String, MatchType)> {
@@ -204,7 +204,7 @@ pub trait SearchTree: Sync + Send {
         abbrevations
     }
 
-    fn load_lines(&mut self, lines: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>);
+    fn load_entries(&mut self, entries: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>);
 
     fn traverse(&self, values: VecDeque<String>) -> Result<Vec<(Vec<String>, &HashSet<Match>)>, String> {
         let vec = self.traverse_internal(values, Vec::new(), Vec::new());
@@ -316,8 +316,8 @@ impl SearchTree for HashMapSearchTree {
         }
     }
 
-    fn load_lines(&mut self, lines: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>) {
-        for (segments, taxon, uri, match_type) in lines {
+    fn load_entries(&mut self, entries: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>) {
+        for (segments, taxon, uri, match_type) in entries {
             self.insert(VecDeque::from(segments), taxon, uri, match_type);
 
             if let Some(pb) = pb {

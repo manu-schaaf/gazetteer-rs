@@ -23,7 +23,6 @@ pub fn read_lines<P>(filename: P) -> Vec<String>
 }
 
 pub fn get_files(root_path: &str) -> Vec<String> {
-    println!("Reading resources dir...");
     let mut files = glob(root_path).expect("Failed to read glob pattern")
         .into_iter()
         .filter_map(|file| file.ok())

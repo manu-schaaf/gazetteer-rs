@@ -1,17 +1,16 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io;
+use std::io::BufRead;
 use std::io::{BufRead, Lines};
 use std::iter::Map;
 use std::path::Path;
 use std::slice::Iter;
 
 use glob::glob;
-use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
-use itertools::{EitherOrBoth, merge_join_by};
-use ngrams::Ngrams;
+use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use symspell::{DistanceAlgorithm, SymSpell, SymSpellBuilder, UnicodeiStringStrategy};
+use crate::tree::MatchType;
 use tokenizers::{Decoder, Encoding, ModelWrapper, Normalizer, NormalizerWrapper, OffsetReferential, Offsets, OffsetType, PostProcessor, PostProcessorWrapper, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior, Tokenizer, TokenizerBuilder, TokenizerImpl};
 use tokenizers::models::wordlevel::WordLevel;
 use tokenizers::normalizers::NFKC;
@@ -44,8 +43,8 @@ pub fn split_with_indices(s: &str) -> (Vec<&str>, Vec<(usize, usize)>) {
     let indices = s.match_indices(SPLIT_PATTERN).collect::<Vec<_>>();
 
     let mut last = 0;
-    let mut offsets: Vec<((usize, usize))> = Vec::new();
-    let mut slices: Vec<(&str)> = Vec::new();
+    let mut offsets: Vec<(usize, usize)> = Vec::new();
+    let mut slices: Vec<&str> = Vec::new();
     for (idx, mtch) in indices {
         let slice = &s[last..idx];
         _push_slice(&mut slices, &mut offsets, slice, last, idx);
@@ -81,7 +80,14 @@ pub(crate) fn get_spinner() -> ProgressBar {
     pb
 }
 
-pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
+pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String, MatchType)> {
+    let filter_list: HashSet<String> = filter_list
+        .map_or_else(
+            || HashSet::new(),
+            |list| list.iter()
+                .map(|s| s.to_lowercase())
+                .collect::<HashSet<String>>(),
+        );
     files.par_iter()
         .map(|file| {
             let lines = read_lines(file);
@@ -97,14 +103,10 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
             let split = line.split('\t').collect::<Vec<&str>>();
             let taxon = String::from(split[0]);
             let uri = String::from(split[1]);
-            (taxon, uri)
+            (taxon, uri, MatchType::Full)
         })
-        .filter(|(taxon, _)| {
-            if let Some(filter_list) = filter_list {
-                filter_list.binary_search(&taxon.to_lowercase()).is_err()
-            } else {
-                true
-            }
+        .filter(|(taxon, _, _)| {
+            filter_list.len() == 0 || !filter_list.contains(&taxon.to_lowercase())
         })
         .collect::<Vec<(String, String)>>()
 }

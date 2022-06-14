@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Rocket Form Example</title>
+    <link rel="stylesheet" href="/chota.min.css">
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px 10px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Success!</h1>
+
+    <h3>Results</h3>
+    <ul>
+        {% for result in results %}
+            <li>"{{ result[0] }}" ({{ result[2] }},{{ result[3] }})
+                {% if result[1] | length > 1 %}
+                    <details>
+                        <summary>
+                            String matches {{ result[1] | length }} entities
+                        </summary>
+                        <ul>
+                            {% for match in result[1] %}
+                                <li><a href="{{ match.match_uri }}">{{ match.match_type }} Match: {{ match.match_string }} ({{ match.match_uri }})</a></li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                {% else %}
+                    <ul>
+                        {% for match in result[1] %}
+                            <li><a href="{{ match.match_uri }}">{{ match.match_type }} Match: {{ match.match_string }} ({{ match.match_uri }})</a></li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+
+    <a href="/">&lt; Submit Another</a>
+</div>
+</body>
+</html>

@@ -1,0 +1,13 @@
+[default]
+filter_path = "resources/filter_de.txt"
+generate_abbrv = false
+generate_ngrams = false
+
+[corpora]
+[corpora.taxa]
+path = "resources/taxon/*.list"
+generate_abbrv = true
+generate_ngrams = false
+
+[corpora.vernacular]
+path = "resources/vernacular/*.list"

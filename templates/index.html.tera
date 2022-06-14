@@ -35,6 +35,10 @@
                     <!-- required -->
                 </div>
                 <div class="col">
+                    {{ m::input(label="Max Deletes", type="number", name="max_deletes", value=0) }}
+                    <!-- required -->
+                </div>
+                <div class="col">
                     {{ m::select(
                         label="Result Selection Method",
                         name="result_selection",

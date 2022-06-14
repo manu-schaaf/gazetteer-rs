@@ -5,6 +5,7 @@ extern crate rocket;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::io::{stdout, Write};
 use std::path::Path;
 
 use rocket::{form, State};
@@ -27,6 +28,7 @@ struct Submit<'v> {
     text: &'v str,
     file: TempFile<'v>,
     max_len: usize,
+    max_deletes: usize,
     result_selection: ResultSelection,
 }
 
@@ -36,6 +38,7 @@ struct Submit<'v> {
 struct Request<'r> {
     text: Cow<'r, str>,
     max_len: Option<usize>,
+    max_deletes: Option<usize>,
     result_selection: Option<Cow<'r, str>>,
 }
 
@@ -63,7 +66,12 @@ fn submit<'r>(mut form: Form<Contextual<'r, Submit<'r>>>, tree: &State<HashMapSe
             // println!("submission: {:#?}", submission);
             match file_or_text(submission.text, &submission.file) {
                 Ok(text) => {
-                    let results = tree.search(&text, Option::from(submission.max_len), Option::from(&submission.result_selection));
+                    let results = tree.search(
+                        &text,
+                        Option::from(submission.max_len),
+                        Option::from(submission.max_deletes),
+                        Option::from(&submission.result_selection),
+                    );
                     // for result in results.iter() {
                     //     println!("{:?} ({},{}) -> {:?}", result.0, result.2, result.2, result.1)
                     // }
@@ -104,8 +112,9 @@ async fn tag(
         None => &ResultSelection::Longest
     };
     let results = tree.search(
-        &request.text,
+        &request.text.to_lowercase(),
         request.max_len.or_else(|| Some(5 as usize)),
+        request.max_deletes.or_else(|| Some(0 as usize)),
         Option::from(result_selection),
     );
     json!({
@@ -156,7 +165,6 @@ fn rocket() -> _ {
         let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| false));
         let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| false));
         let max_deletes = corpus.max_deletes.unwrap_or_else(|| config.max_deletes.unwrap_or_else(|| 0));
-        println!("Loading with max_deletes: {}", max_deletes);
         if let Some(_filter_path) = &corpus.filter_path {
             let _lines = read_lines(Path::new(&_filter_path));
             let _filter_list = Option::from(_lines);
@@ -167,6 +175,7 @@ fn rocket() -> _ {
     }
     let tree = tree;
 
+    stdout().flush().expect("");
     println!("Finished loading gazetteer.");
 
     rocket::build()

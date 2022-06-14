@@ -53,6 +53,7 @@ fn test_sanitize() {
     let result = tree.search(
         "ABC Puffinus p. puffinus X Y Z",
         Option::from(3),
+        ,
         Option::from(&ResultSelection::Longest),
     );
     println!("{:?}", result);
@@ -65,7 +66,7 @@ fn process_test_file(tree: &impl SearchTree, max_len: Option<i32>) {
     let text = read_lines("resources/216578.txt")
         .join(" ");
 
-    process_test_output(tree.search(&text, Option::from(max_len), Option::from(&ResultSelection::Last)));
+    process_test_output(tree.search(&text, Option::from(max_len), , Option::from(&ResultSelection::Last)));
 }
 
 fn process_test_output(results: Vec<(String, HashSet<Match>, usize, usize)>) {
@@ -84,9 +85,9 @@ fn test_sample() {
         let v: VecDeque<String> = s.split(" ").collect();
         tree.insert(v, s, uri, MatchType::Full);
     }
-    println!("{:?}", tree.traverse(String::from("An xyz").split(" ").collect::<VecDeque<String>>()));
-    println!("{:?}", tree.traverse(String::from("An example").split(" ").collect::<VecDeque<String>>()));
-    println!("{:?}", tree.traverse(String::from("An example phrase").split(" ").collect::<VecDeque<String>>()));
+    println!("{:?}", tree.traverse(String::from("An xyz").split(" ").collect::<VecDeque<String>>(), 0));
+    println!("{:?}", tree.traverse(String::from("An example").split(" ").collect::<VecDeque<String>>(), 0));
+    println!("{:?}", tree.traverse(String::from("An example phrase").split(" ").collect::<VecDeque<String>>(), 0));
 }
 
 #[test]

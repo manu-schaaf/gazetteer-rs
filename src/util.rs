@@ -80,14 +80,7 @@ pub(crate) fn get_spinner() -> ProgressBar {
     pb
 }
 
-pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String, MatchType)> {
-    let filter_list: HashSet<String> = filter_list
-        .map_or_else(
-            || HashSet::new(),
-            |list| list.iter()
-                .map(|s| s.to_lowercase())
-                .collect::<HashSet<String>>(),
-        );
+pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: &HashSet<String>) -> Vec<(String, String, MatchType)> {
     files.par_iter()
         .map(|file| {
             let lines = read_lines(file);

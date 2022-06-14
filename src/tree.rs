@@ -3,16 +3,16 @@ use std::collections::vec_deque::VecDeque;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use indicatif::{ ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use ngrams::Ngram;
 use rayon::prelude::*;
 #[cfg(feature = "server")]
-use rocket::form::{FromForm, FromFormField};
+use rocket::form::FromFormField;
 #[cfg(feature = "server")]
 use rocket::serde::{Deserialize, Serialize};
 
-use crate::util::{get_files, parse_files, split_with_indices, Tokenizer};
+use crate::util::{get_files, parse_files, Tokenizer};
 
 #[cfg_attr(feature = "server", derive(FromFormField, Serialize, Deserialize))]
 #[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
@@ -91,6 +91,10 @@ pub trait SearchTree: Sync + Send {
     fn default() -> Self
         where Self: Sized;
 
+    fn tokenize(&self, input: &str) -> Result<(Vec<String>, Vec<(usize, usize)>), String>;
+
+    fn tokenize_batch(&self, input: &[String]) -> Result<Vec<(Vec<String>, Vec<(usize, usize)>)>, String>;
+
     fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
         let files: Vec<String> = get_files(root_path);
         println!("Found {} files", files.len());
@@ -99,12 +103,10 @@ pub trait SearchTree: Sync + Send {
         pb.set_style(ProgressStyle::with_template(
             "Loading Input Files {bar:40} {pos}/{len} {msg}"
         ).unwrap());
-        let mut lines = parse_files(files, Option::from(&pb), filter_list);
-
-        let tokenizer = Tokenizer::default();
+        let lines = parse_files(files, Option::from(&pb), filter_list);
 
         let (taxa, _, _): (Vec<String>, Vec<String>, Vec<MatchType>) = lines.clone().into_iter().multiunzip();
-        let segmented = tokenizer.encode_batch(taxa).unwrap();
+        let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> = self.tokenize_batch(taxa.as_slice()).unwrap();
         let lines = segmented.into_iter().zip(lines.into_iter())
             .map(|(segments, (taxon, uri, match_type))| (segments.0, taxon.clone(), uri.clone(), match_type.clone()))
             .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
@@ -114,7 +116,7 @@ pub trait SearchTree: Sync + Send {
 
             let pb = ProgressBar::new(lines.len() as u64);
             pb.set_style(ProgressStyle::with_template(
-                "Loading n-grams {bar:40} {pos}/{len} {msg}"
+                "Loading n-Grams {bar:40} {pos}/{len} {msg}"
             ).unwrap());
             self.load_lines(ngrams, Some(&pb));
             pb.finish_with_message("Done");
@@ -125,7 +127,7 @@ pub trait SearchTree: Sync + Send {
 
             let pb = ProgressBar::new(lines.len() as u64);
             pb.set_style(ProgressStyle::with_template(
-                "Loading abbreviations {bar:40} {pos}/{len} {msg}"
+                "Loading Abbreviations {bar:40} {pos}/{len} {msg}"
             ).unwrap());
             self.load_lines(abbreviations, Some(&pb));
             pb.finish_with_message("Done");
@@ -149,7 +151,7 @@ pub trait SearchTree: Sync + Send {
             "Generating N-Grams {bar:40} {pos}/{len} {msg}"
         ).unwrap());
 
-        let mut ngrams = filtered.par_iter()
+        let ngrams = filtered.par_iter()
             .map(|(segments, taxon_name, uri, _)| {
                 let mut result = Vec::new();
                 let ngrams = segments.clone().into_iter()
@@ -182,7 +184,7 @@ pub trait SearchTree: Sync + Send {
             "Generating Abbreviations {bar:40} {pos}/{len} {msg}"
         ).unwrap());
 
-        let mut abbrevations = filtered.par_iter()
+        let abbrevations = filtered.par_iter()
             .map(|(segments, taxon_name, uri, _)| {
                 let mut result = Vec::new();
 
@@ -204,7 +206,7 @@ pub trait SearchTree: Sync + Send {
 
     fn load_lines(&mut self, lines: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>);
 
-    fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &HashSet<Match>)>, String> {
+    fn traverse(&self, values: VecDeque<String>) -> Result<Vec<(Vec<String>, &HashSet<Match>)>, String> {
         let vec = self.traverse_internal(values, Vec::new(), Vec::new());
         if vec.len() > 0 {
             Ok(vec)
@@ -215,19 +217,19 @@ pub trait SearchTree: Sync + Send {
 
     fn traverse_internal<'a>(
         &'a self,
-        values: VecDeque<&'a str>,
-        matched_string_buffer: Vec<&'a str>,
-        results: Vec<(Vec<&'a str>, &'a HashSet<Match>)>,
-    ) -> Vec<(Vec<&'a str>, &'a HashSet<Match>)>;
+        values: VecDeque<String>,
+        matched_string_buffer: Vec<String>,
+        results: Vec<(Vec<String>, &'a HashSet<Match>)>,
+    ) -> Vec<(Vec<String>, &'a HashSet<Match>)>;
 
     fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, HashSet<Match>, usize, usize)> {
         let result_selection = result_selection.unwrap_or(&ResultSelection::Longest);
         let max_len = max_len.unwrap_or(5 as usize);
 
-        let (mut slices, mut offsets) = split_with_indices(text);
+        let (mut slices, mut offsets) = self.tokenize(text).unwrap();
 
         // Pad the slices and their offsets to include the last words
-        slices.extend(vec![""; max_len]);
+        slices.extend(vec![String::new(); max_len]);
         offsets.extend(vec![(0, 0); max_len]);
         let (slices, offsets) = (slices, offsets);
 
@@ -276,10 +278,11 @@ pub trait SearchTree: Sync + Send {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct HashMapSearchTree {
     pub matches: HashSet<Match>,
     pub children: HashMap<String, HashMapSearchTree>,
+    tokenizer: Option<Tokenizer>,
 }
 
 impl SearchTree for HashMapSearchTree {
@@ -287,6 +290,29 @@ impl SearchTree for HashMapSearchTree {
         HashMapSearchTree {
             matches: HashSet::new(),
             children: HashMap::new(),
+            tokenizer: Option::from(Tokenizer::default()),
+        }
+    }
+
+    fn tokenize(&self, input: &str) -> Result<(Vec<String>, Vec<(usize, usize)>), String> {
+        match &self.tokenizer {
+            Some(tokenizer) => {
+                Ok(tokenizer.tokenize(input))
+            }
+            None => {
+                Err(String::from("Missing tokenizer!"))
+            }
+        }
+    }
+
+    fn tokenize_batch(&self, input: &[String]) -> Result<Vec<(Vec<String>, Vec<(usize, usize)>)>, String> {
+        match &self.tokenizer {
+            Some(tokenizer) => {
+                Ok(tokenizer.encode_batch(input))
+            }
+            None => {
+                Err(String::from("Missing tokenizer!"))
+            }
         }
     }
 
@@ -302,14 +328,14 @@ impl SearchTree for HashMapSearchTree {
 
     fn traverse_internal<'a>(
         &'a self,
-        mut values: VecDeque<&'a str>,
-        mut matched_string_buffer: Vec<&'a str>,
-        mut results: Vec<(Vec<&'a str>, &'a HashSet<Match>)>,
-    ) -> Vec<(Vec<&'a str>, &'a HashSet<Match>)> {
+        mut values: VecDeque<String>,
+        mut matched_string_buffer: Vec<String>,
+        mut results: Vec<(Vec<String>, &'a HashSet<Match>)>,
+    ) -> Vec<(Vec<String>, &'a HashSet<Match>)> {
         let value = values.pop_front().expect("");
         match self.children.get(&value.to_lowercase()) {
             Some(child) => {
-                matched_string_buffer.push(value);
+                matched_string_buffer.push(value.to_string());
                 if !child.matches.is_empty() {
                     results.push((matched_string_buffer.clone(), &child.matches));
                 }
@@ -332,11 +358,15 @@ impl HashMapSearchTree {
         Self {
             matches: HashSet::from([Match::full(match_string, match_uri)]),
             children: HashMap::new(),
+            tokenizer: None,
         }
     }
 
     fn child() -> Self {
-        Self::default()
+        HashMapSearchTree {
+            tokenizer: None,
+            ..HashMapSearchTree::default()
+        }
     }
 
     pub fn insert(&mut self, mut values: VecDeque<String>, match_string: String, match_uri: String, match_type: MatchType) {

@@ -2,12 +2,14 @@
 filter_path = "resources/filter_de.txt"
 generate_abbrv = false
 generate_ngrams = false
+max_deletes = 0
 
 [corpora]
 [corpora.taxa]
 path = "resources/taxon/*.list"
 generate_abbrv = true
-generate_ngrams = false
+max_deletes = 1
 
 [corpora.vernacular]
 path = "resources/vernacular/*.list"
+max_deletes = 1

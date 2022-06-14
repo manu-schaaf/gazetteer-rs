@@ -128,6 +128,7 @@ struct Config {
     filter_path: Option<String>,
     generate_abbrv: Option<bool>,
     generate_ngrams: Option<bool>,
+    max_deletes: Option<usize>,
     corpora: HashMap<String, Corpus>,
 }
 
@@ -138,6 +139,7 @@ struct Corpus {
     filter_path: Option<String>,
     generate_abbrv: Option<bool>,
     generate_ngrams: Option<bool>,
+    max_deletes: Option<usize>,
 }
 
 #[launch]
@@ -153,12 +155,14 @@ fn rocket() -> _ {
         let path: &String = &corpus.path;
         let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| false));
         let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| false));
+        let max_deletes = corpus.max_deletes.unwrap_or_else(|| config.max_deletes.unwrap_or_else(|| 0));
+        println!("Loading with max_deletes: {}", max_deletes);
         if let Some(_filter_path) = &corpus.filter_path {
             let _lines = read_lines(Path::new(&_filter_path));
             let _filter_list = Option::from(_lines);
-            tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
+            tree.load(&path, generate_ngrams, generate_abbrv, max_deletes, filter_list);
         } else {
-            tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
+            tree.load(&path, generate_ngrams, generate_abbrv, max_deletes, filter_list);
         }
     }
     let tree = tree;

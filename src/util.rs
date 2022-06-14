@@ -3,10 +3,15 @@ use std::fs::File;
 use std::io;
 use std::io::BufRead;
 use std::path::Path;
+use std::slice::IterMut;
+use std::vec::IntoIter;
 
+use encode_unicode::{SliceExt, StrExt};
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
+use itertools::Itertools;
 use rayon::prelude::*;
+
 use crate::tree::MatchType;
 
 pub fn read_lines<P>(filename: P) -> Vec<String>
@@ -28,7 +33,7 @@ pub fn get_files(root_path: &str) -> Vec<String> {
     files
 }
 
-pub const SPLIT_PATTERN: &[char; 10] = &[' ', '.', ',', ':', ';', '-', '_', '"', '(', ')'];
+pub const SPLIT_PATTERN: &[char; 11] = &[' ', '.', ',', ':', ';', '-', '_', '"', '(', ')', '×'];
 
 pub fn split_with_indices(s: &str) -> (Vec<&str>, Vec<(usize, usize)>) {
     let indices = s.match_indices(SPLIT_PATTERN).collect::<Vec<_>>();
@@ -100,4 +105,28 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
             filter_list.len() == 0 || !filter_list.contains(&taxon.to_lowercase())
         })
         .collect::<Vec<(String, String, MatchType)>>()
+}
+
+pub fn get_deletes(string: &String, max_deletes: usize) -> Vec<String> {
+    let indices: Vec<usize> = string.as_bytes().utf8char_indices().into_iter().map(|(offset, _, _)| offset).collect();
+    let deletes: Vec<String> = indices.par_windows(2)
+        .map(|idx| delete(string, 0, max_deletes, idx[0], idx[1]))
+        .flatten()
+        .collect();
+    deletes
+}
+
+fn delete(last: &String, current_deletes: usize, max_deletes: usize, split_index: usize, next_index: usize) -> Vec<String> {
+    let mut deletes = Vec::new();
+    let _current_deletes = current_deletes + 1;
+    let (a, b) = last.split_at(split_index);
+    let deleted = format!("{}{}", a, b[next_index - split_index..].to_string());
+    deletes.push(deleted.clone());
+    if _current_deletes < max_deletes {
+        let indices: Vec<usize> = deleted.as_bytes().utf8char_indices().into_iter().map(|(offset, _, _)| offset).collect();
+        for idx in indices.windows(2) {
+            deletes.append(&mut delete(&deleted, _current_deletes, max_deletes, idx[0], idx[1]))
+        }
+    }
+    deletes
 }

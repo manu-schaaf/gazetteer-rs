@@ -92,21 +92,21 @@ fn test_sample() {
 #[test]
 fn test_small_string_tree() {
     let mut tree = BinarySearchTree::default();
-    tree.load("resources/taxa.txt", false, false, None);
+    tree.load("resources/taxa.txt", false, false, 0, None);
     process_test_file(&tree, Option::from(5));
 }
 
 #[test]
 fn test_big_string_tree() {
     let mut tree = BinarySearchTree::default();
-    tree.load("resources/BIOfid/*", false, false, None);
+    tree.load("resources/BIOfid/*", false, false, 0, None);
     process_test_file(&tree, Option::from(5));
 }
 
 #[test]
 fn test_big_multi_tree() {
     let mut tree = BinarySearchTree::default();
-    tree.load("resources/BIOfid/*", false, false, None);
+    tree.load("resources/BIOfid/*", false, false, 0, None);
     process_test_file(&tree, Option::from(5));
 }
 
@@ -117,8 +117,8 @@ fn test_big_multi_balanced() {
     filter_list.sort_unstable();
 
     let mut tree = MultiTree::default();
-    tree.load("resources/taxa/_current/taxon/*.list", false, true, Option::from(&filter_list));
-    tree.load("resources/taxa/_current/vernacular/*.list", false, false, Option::from(&filter_list));
+    tree.load("resources/taxa/_current/taxon/*.list", false, true, 0, Option::from(&filter_list));
+    tree.load("resources/taxa/_current/vernacular/*.list", false, false, 0, Option::from(&filter_list));
     let tree = tree;
     process_test_file(&tree, Option::from(5));
 }

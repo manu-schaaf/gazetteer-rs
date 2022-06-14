@@ -13,7 +13,7 @@ use rocket::http::ext::IntoCollection;
 #[cfg(feature = "server")]
 use rocket::serde::{Deserialize, Serialize};
 
-use crate::util::{get_files, get_spinner, parse_files, split_with_indices};
+use crate::util::{get_deletes, get_files, get_spinner, parse_files, split_with_indices};
 
 #[cfg_attr(feature = "server", derive(FromFormField, Serialize, Deserialize))]
 #[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
@@ -105,7 +105,7 @@ pub trait SearchTree: Sync + Send {
     fn default() -> Self
         where Self: Sized;
 
-    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
+    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, max_deletes: usize, filter_list: Option<&Vec<String>>) {
         let files: Vec<String> = get_files(root_path);
         println!("Found {} files", files.len());
 
@@ -122,7 +122,7 @@ pub trait SearchTree: Sync + Send {
             pb.set_style(ProgressStyle::with_template(
                 "Loading n-grams {bar:40} {pos}/{len} {msg}"
             ).unwrap());
-            self.load_lines(ngrams, Some(&pb));
+            self.load_lines(ngrams, max_deletes, Some(&pb));
             pb.finish_with_message("Done");
         }
 
@@ -133,7 +133,7 @@ pub trait SearchTree: Sync + Send {
             pb.set_style(ProgressStyle::with_template(
                 "Loading abbreviations {bar:40} {pos}/{len} {msg}"
             ).unwrap());
-            self.load_lines(abbreviations, Some(&pb));
+            self.load_lines(abbreviations, max_deletes, Some(&pb));
             pb.finish_with_message("Done");
         }
 
@@ -141,7 +141,7 @@ pub trait SearchTree: Sync + Send {
         pb.set_style(ProgressStyle::with_template(
             "Loading lines {bar:40} {pos}/{len} {msg}"
         ).unwrap());
-        self.load_lines(lines.into_iter().map(|line| (line.0, line.1, MatchType::Full)).collect(), Some(&pb));
+        self.load_lines(lines.into_iter().map(|line| (line.0, line.1, MatchType::Full)).collect(), max_deletes, Some(&pb));
         pb.finish_with_message("Done");
     }
 
@@ -210,7 +210,7 @@ pub trait SearchTree: Sync + Send {
         abbrevations
     }
 
-    fn load_lines(&mut self, lines: Vec<(String, String, MatchType)>, pb: Option<&ProgressBar>);
+    fn load_lines(&mut self, lines: Vec<(String, String, MatchType)>, max_deletes: usize, pb: Option<&ProgressBar>);
 
     fn traverse<'a>(&'a self, values: VecDeque<&'a str>) -> Result<Vec<(Vec<&'a str>, &HashSet<Match>)>, String> {
         let vec = self.traverse_internal(values, Vec::new(), Vec::new());
@@ -298,9 +298,9 @@ impl SearchTree for HashMapSearchTree {
         }
     }
 
-    fn load_lines(&mut self, lines: Vec<(String, String, MatchType)>, pb: Option<&ProgressBar>) {
+    fn load_lines(&mut self, lines: Vec<(String, String, MatchType)>, max_deletes: usize, pb: Option<&ProgressBar>) {
         for (taxon, uri, match_type) in lines {
-            self.insert(VecDeque::from(split_with_indices(&taxon.clone()).0), taxon, uri, match_type);
+            self.insert(VecDeque::from(split_with_indices(&taxon.clone()).0), taxon, uri, match_type, max_deletes);
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -347,14 +347,23 @@ impl HashMapSearchTree {
         Self::default()
     }
 
-    pub fn insert(&mut self, mut values: VecDeque<&str>, match_string: String, match_uri: String, match_type: MatchType) {
+    pub fn insert(&mut self, mut values: VecDeque<&str>, match_string: String, match_uri: String, match_type: MatchType, max_deletes: usize) {
         let value = values.pop_front().unwrap().to_lowercase();
+        if max_deletes > 0 {
+            for deleted in get_deletes(&value, max_deletes) {
+                self.push(deleted, values.clone(), match_string.clone(), match_uri.clone(), match_type.clone(), max_deletes);
+            }
+        }
+        self.push(value, values, match_string, match_uri, match_type, max_deletes);
+    }
+
+    fn push(&mut self, value: String, mut values: VecDeque<&str>, match_string: String, match_uri: String, match_type: MatchType, max_deletes: usize) {
         match self.children.get_mut(&value.to_lowercase()) {
             Some(mut child) => {
                 if values.is_empty() {
                     child.matches.insert(Match { match_type, match_string, match_uri });
                 } else {
-                    child.insert(values, match_string, match_uri, match_type);
+                    child.insert(values, match_string, match_uri, match_type, max_deletes);
                 }
             }
             None => {
@@ -362,7 +371,7 @@ impl HashMapSearchTree {
                     self.children.insert(value, HashMapSearchTree::from(match_string, match_uri));
                 } else {
                     match self.children.try_insert(value, HashMapSearchTree::child()) {
-                        Ok(child) => { child.insert(values, match_string, match_uri, match_type); }
+                        Ok(child) => { child.insert(values, match_string, match_uri, match_type, max_deletes); }
                         Err(err) => { panic!("{:?}", err) }
                     }
                 }
@@ -388,7 +397,7 @@ impl SearchTree for BinarySearchTree {
         }
     }
 
-    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
+    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, max_deletes: usize, filter_list: Option<&Vec<String>>) {
         let files: Vec<String> = get_files(root_path);
         println!("Found {} files", files.len());
 
@@ -414,11 +423,11 @@ impl SearchTree for BinarySearchTree {
         pb.set_style(ProgressStyle::with_template(
             "Loading lines {bar:40} {pos}/{len} {msg}"
         ).unwrap());
-        self.load_lines(lines, Some(&pb));
+        self.load_lines(lines, max_deletes, Some(&pb));
         pb.finish_with_message("Done");
     }
 
-    fn load_lines(&mut self, lines: Vec<(String, String, MatchType)>, pb: Option<&ProgressBar>) {
+    fn load_lines(&mut self, lines: Vec<(String, String, MatchType)>, max_deletes: usize, pb: Option<&ProgressBar>) {
         for (taxon_name, uri, match_type) in lines {
             self.insert(VecDeque::from(split_with_indices(&taxon_name.clone()).0), taxon_name, uri, match_type);
 
@@ -630,7 +639,7 @@ impl SearchTree for MultiTree {
         }
     }
 
-    fn load_lines(&mut self, lines: Vec<(String, String, MatchType)>, pb: Option<&ProgressBar>) {
+    fn load_lines(&mut self, lines: Vec<(String, String, MatchType)>, max_deletes: usize, pb: Option<&ProgressBar>) {
         let mut start_end: Vec<(usize, usize)> = Vec::new();
         for start in (0..lines.len()).step_by(self.each_size) {
             let size = usize::min(start + self.each_size, lines.len());
@@ -676,13 +685,13 @@ impl SearchTree for MultiTree {
 }
 
 impl MultiTree {
-    fn with_each_size(root_path: &str, each_size: i32, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) -> Self {
+    fn with_each_size(root_path: &str, each_size: usize, generate_ngrams: bool, generate_abbrv: bool, max_deletes: usize, filter_list: Option<&Vec<String>>) -> Self {
         let mut root = Self {
             children: vec![],
             each_size: each_size as usize,
         };
 
-        root.load(root_path, generate_ngrams, generate_abbrv, filter_list);
+        root.load(root_path, generate_ngrams, generate_abbrv, max_deletes, filter_list);
 
         root
     }

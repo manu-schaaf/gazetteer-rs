@@ -4,8 +4,13 @@
 extern crate rocket;
 
 use std::borrow::Cow;
+use std::fs::File;
+use std::io;
+use std::io::BufRead;
+use std::path::Path;
+use std::process::exit;
 
-use rocket::{form, State};
+use rocket::{build, form, State, tokio};
 use rocket::form::{Context, Contextual, Error, Form, FromForm};
 use rocket::fs::{FileServer, relative, TempFile};
 use rocket::http::Status;
@@ -120,17 +125,43 @@ fn tag_error() -> Value {
     })
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
+struct Config {
+    filter_path: Option<String>,
+    generate_abbrv: Option<bool>,
+    generate_ngrams: Option<bool>,
+    path: Option<String>,
+    corpora: Vec<Config>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
+struct Keys {
+    github: String,
+    travis: Option<String>,
+}
+
 #[launch]
 fn rocket() -> _ {
-    let mut filter_list = read_lines("resources/filter_de.txt");
-    filter_list.sort_unstable();
+    let config = read_lines("resources/config.toml").join("\n");
+    let config: Config = toml::from_str(&config).unwrap();
 
     let mut tree = HashMapSearchTree::default();
-    tree.load("resources/taxon/*.list", false, true, Option::from(&filter_list));
-    tree.load("resources/vernacular/*.list", false, false, Option::from(&filter_list));
+    let lines = read_lines(Path::new(&config.filter_path));
+    let filter_list = config.filter_path.map_or_else(|| None, |p| Option::from(&lines));
+
+    for corpus in config.corpora {
+        let path: String = corpus.path.unwrap();
+        let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| false));
+        let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| false));
+        let _filter_list = corpus.filter_path.map_or_else(|| None, |p| )
+        let _filter_list = _filter_list.map_or_else(|| filter_list, |p| Option::from(&_filter_list));
+        tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
+    }
     let tree = tree;
 
-    println!("Fininshed loading gazetteer.");
+    println!("Finished loading gazetteer.");
 
     rocket::build()
         .mount("/", routes![index, submit, tag])

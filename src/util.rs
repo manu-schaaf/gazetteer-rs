@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::fs::File;
 use std::io;
-use std::io::{BufRead};
+use std::io::BufRead;
 use std::path::Path;
 
 use glob::glob;
@@ -69,7 +70,14 @@ pub(crate) fn get_spinner() -> ProgressBar {
     pb
 }
 
-pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
+pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: &Vec<String>) -> Vec<(String, String)> {
+    let filter_list: HashSet<String> = filter_list
+        .map_or_else(
+            || HashSet::new(),
+            |list| list.iter()
+                .map(|s| s.to_lowercase())
+                .collect::<HashSet<String>>(),
+        );
     files.par_iter()
         .map(|file| {
             let lines = read_lines(file);
@@ -88,11 +96,7 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
             (taxon, uri)
         })
         .filter(|(taxon, _)| {
-            if let Some(filter_list) = filter_list {
-                filter_list.binary_search(&taxon.to_lowercase()).is_err()
-            } else {
-                true
-            }
+            filter_list.len() == 0 || !filter_list.contains(&taxon.to_lowercase())
         })
         .collect::<Vec<(String, String)>>()
 }

@@ -84,7 +84,7 @@ pub trait SearchTree: Sync + Send {
     fn default() -> Self
         where Self: Sized;
 
-    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
+    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: &Vec<String>) {
         let files: Vec<String> = get_files(root_path);
         println!("Found {} files", files.len());
 

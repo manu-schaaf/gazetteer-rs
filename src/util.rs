@@ -70,7 +70,7 @@ pub(crate) fn get_spinner() -> ProgressBar {
     pb
 }
 
-pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: &Vec<String>) -> Vec<(String, String)> {
+pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
     let filter_list: HashSet<String> = filter_list
         .map_or_else(
             || HashSet::new(),

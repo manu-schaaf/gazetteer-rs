@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::collections::btree_map::OccupiedError;
 use std::collections::vec_deque::VecDeque;
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -12,7 +12,7 @@ use rocket::FromFormField;
 #[cfg(feature = "server")]
 use rocket::serde::{Deserialize, Serialize};
 
-use crate::util::{get_files, get_spinner, parse_files, read_lines, split_with_indices};
+use crate::util::{get_files, get_spinner, parse_files, split_with_indices};
 
 #[cfg_attr(feature = "server", derive(FromFormField, Serialize, Deserialize))]
 #[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
@@ -32,6 +32,16 @@ pub enum MatchType {
     Corrected,
 }
 
+impl Display for MatchType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MatchType::None => {write!(f, "None")}
+            MatchType::Full => {write!(f, "Full")}
+            MatchType::Corrected => {write!(f, "Corrected")}
+        }
+    }
+}
+
 #[cfg_attr(feature = "server", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -44,6 +54,12 @@ pub struct Match {
 impl Hash for Match {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.match_uri.hash(state);
+    }
+}
+
+impl Display for Match {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+       write!{f, "{} Match: {} -> {}", self.match_type, self.match_string, self.match_uri}
     }
 }
 
@@ -84,7 +100,7 @@ pub trait SearchTree: Sync + Send {
     fn default() -> Self
         where Self: Sized;
 
-    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: &Vec<String>) {
+    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
         let files: Vec<String> = get_files(root_path);
         println!("Found {} files", files.len());
 

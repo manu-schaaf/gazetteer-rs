@@ -4,13 +4,10 @@
 extern crate rocket;
 
 use std::borrow::Cow;
-use std::fs::File;
-use std::io;
-use std::io::BufRead;
+use std::collections::HashMap;
 use std::path::Path;
-use std::process::exit;
 
-use rocket::{build, form, State, tokio};
+use rocket::{form, State};
 use rocket::form::{Context, Contextual, Error, Form, FromForm};
 use rocket::fs::{FileServer, relative, TempFile};
 use rocket::http::Status;
@@ -131,15 +128,16 @@ struct Config {
     filter_path: Option<String>,
     generate_abbrv: Option<bool>,
     generate_ngrams: Option<bool>,
-    path: Option<String>,
-    corpora: Vec<Config>,
+    corpora: HashMap<String, Corpus>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-struct Keys {
-    github: String,
-    travis: Option<String>,
+struct Corpus {
+    path: String,
+    filter_path: Option<String>,
+    generate_abbrv: Option<bool>,
+    generate_ngrams: Option<bool>,
 }
 
 #[launch]
@@ -148,16 +146,20 @@ fn rocket() -> _ {
     let config: Config = toml::from_str(&config).unwrap();
 
     let mut tree = HashMapSearchTree::default();
-    let lines = read_lines(Path::new(&config.filter_path));
-    let filter_list = config.filter_path.map_or_else(|| None, |p| Option::from(&lines));
+    let lines = config.filter_path.map_or_else(|| Vec::new(), |p| read_lines(Path::new(&p)));
+    let filter_list = if lines.len() == 0 { None } else { Option::from(&lines) };
 
-    for corpus in config.corpora {
-        let path: String = corpus.path.unwrap();
+    for corpus in config.corpora.values() {
+        let path: &String = &corpus.path;
         let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| false));
         let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| false));
-        let _filter_list = corpus.filter_path.map_or_else(|| None, |p| )
-        let _filter_list = _filter_list.map_or_else(|| filter_list, |p| Option::from(&_filter_list));
-        tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
+        if let Some(_filter_path) = &corpus.filter_path {
+            let _lines = read_lines(Path::new(&_filter_path));
+            let _filter_list = Option::from(_lines);
+            tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
+        } else {
+            tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
+        }
     }
     let tree = tree;
 

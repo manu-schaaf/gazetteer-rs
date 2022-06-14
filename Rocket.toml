@@ -2,6 +2,6 @@
 limits.data-form = "2MiB"
 template_dir = "templates/"
 
-#[release]
-#address = "0.0.0.0"
-#port = 80
+[release]
+address = "0.0.0.0"
+port = 80

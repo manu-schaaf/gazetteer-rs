@@ -1,6 +1,9 @@
+use std::collections::HashSet;
 use std::collections::vec_deque::VecDeque;
 
-use gazetteer::tree::{MultiTree, ResultSelection, SearchTree, BinarySearchTree};
+use rocket::http::ext::IntoCollection;
+
+use gazetteer::tree::{BinarySearchTree, Match, MultiTree, ResultSelection, SearchTree};
 use gazetteer::util::{read_lines, split_with_indices};
 
 // #[test]
@@ -44,8 +47,8 @@ use gazetteer::util::{read_lines, split_with_indices};
 fn test_sanitize() {
     let mut tree = BinarySearchTree::default();
 
-    tree.insert(VecDeque::from(split_with_indices("Puffinus").0), String::from("URI:short"));
-    tree.insert(VecDeque::from(split_with_indices("p. puffinus").0), String::from("URI:abbrv"));
+    tree.insert(VecDeque::from(split_with_indices("Puffinus").0), String::from("Puffinus"), String::from("URI:short"));
+    tree.insert(VecDeque::from(split_with_indices("p. puffinus").0), String::from("p. puffinus"), String::from("URI:abbrv"));
 
     let result = tree.search(
         "ABC Puffinus p. puffinus X Y Z",
@@ -65,9 +68,9 @@ fn process_test_file(tree: &impl SearchTree, max_len: Option<i32>) {
     process_test_output(tree.search(&text, Option::from(max_len), Option::from(&ResultSelection::Last)));
 }
 
-fn process_test_output(results: Vec<(String, Vec<String>, usize, usize)>) {
+fn process_test_output(results: Vec<(String, HashSet<Match>, usize, usize)>) {
     for result in results {
-        println!("{:?} ({},{}) -> {:}", result.0, result.2, result.3, result.1.join("; "))
+        println!("{:?} ({},{}): {:?}", result.0, result.2, result.3, result.1)
     }
 }
 
@@ -79,7 +82,7 @@ fn test_sample() {
         let s = String::from(s);
         let uri = String::from(uri);
         let v: VecDeque<&str> = s.split(' ').collect::<VecDeque<&str>>();
-        tree.insert(v, uri);
+        tree.insert(v, s, uri);
     }
     println!("{:?}", tree.traverse(String::from("An xyz").split(' ').collect::<VecDeque<&str>>()));
     println!("{:?}", tree.traverse(String::from("An example").split(' ').collect::<VecDeque<&str>>()));
@@ -88,19 +91,22 @@ fn test_sample() {
 
 #[test]
 fn test_small_string_tree() {
-    let tree = BinarySearchTree::load("resources/taxa.txt");
+    let mut tree = BinarySearchTree::default();
+    tree.load("resources/taxa.txt", false, false, None);
     process_test_file(&tree, Option::from(5));
 }
 
 #[test]
 fn test_big_string_tree() {
-    let tree = BinarySearchTree::load("resources/BIOfid/*");
+    let mut tree = BinarySearchTree::default();
+    tree.load("resources/BIOfid/*", false, false, None);
     process_test_file(&tree, Option::from(5));
 }
 
 #[test]
 fn test_big_multi_tree() {
-    let tree = MultiTree::load("resources/BIOfid/*");
+    let mut tree = BinarySearchTree::default();
+    tree.load("resources/BIOfid/*", false, false, None);
     process_test_file(&tree, Option::from(5));
 }
 
@@ -111,8 +117,8 @@ fn test_big_multi_balanced() {
     filter_list.sort_unstable();
 
     let mut tree = MultiTree::default();
-    tree.add_balanced("resources/taxa/_current/taxon/*.list", false, true, Option::from(&filter_list));
-    tree.add_vernacular("resources/taxa/_current/vernacular/*.list", Option::from(&filter_list));
+    tree.load("resources/taxa/_current/taxon/*.list", false, true, Option::from(&filter_list));
+    tree.load("resources/taxa/_current/vernacular/*.list", false, false, Option::from(&filter_list));
     let tree = tree;
     process_test_file(&tree, Option::from(5));
 }

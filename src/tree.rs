@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::collections::vec_deque::VecDeque;
 use std::fmt::{Display, Formatter};
@@ -33,6 +34,29 @@ pub enum MatchType {
     NGram,
 }
 
+impl MatchType {
+    fn get_value(&self) -> i32 {
+        match self {
+            MatchType::None => { -1 }
+            MatchType::Full => { 0 }
+            MatchType::Abbreviated => { 1 }
+            MatchType::NGram => { 2 }
+        }
+    }
+}
+
+impl Ord for MatchType {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.get_value().cmp(&other.get_value())
+    }
+}
+
+impl PartialOrd<Self> for MatchType {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Display for MatchType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -56,6 +80,20 @@ pub struct Match {
 impl Hash for Match {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.match_uri.hash(state);
+    }
+}
+
+impl Ord for Match {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.match_type.cmp(&other.match_type)
+            .then(self.match_string.cmp(&other.match_string))
+            .then(self.match_uri.cmp(&other.match_uri))
+    }
+}
+
+impl PartialOrd<Self> for Match {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -148,7 +186,7 @@ pub trait SearchTree: Sync + Send {
 
         let pb = ProgressBar::new(filtered.len() as u64);
         pb.set_style(ProgressStyle::with_template(
-            "Generating N-Grams {bar:40} {pos}/{len} {msg}"
+            "Generating n-Grams {bar:40} {pos}/{len} {msg}"
         ).unwrap());
 
         let ngrams = filtered.par_iter()
@@ -170,7 +208,7 @@ pub trait SearchTree: Sync + Send {
             .flatten()
             .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
 
-        pb.finish_with_message(format!("Adding {} n-grams", ngrams.len()));
+        pb.finish_with_message(format!("Generated {} n-grams", ngrams.len()));
         ngrams
     }
 

@@ -16,7 +16,7 @@ use rocket::serde::json::{Json, Value};
 use rocket::serde::json::serde_json::json;
 use rocket_dyn_templates::{context, Template};
 
-use gazetteer::tree::{HashMapSearchTree, ResultSelection, SearchTree};
+use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection, SearchTree};
 use gazetteer::util::read_lines;
 
 #[cfg(test)]
@@ -86,8 +86,8 @@ fn submit<'r>(mut form: Form<Contextual<'r, Submit<'r>>>, tree: &State<HashMapSe
     (form.context.status(), template)
 }
 
-#[post("/tag", format = "json", data = "<request>")]
-async fn tag(
+#[post("/search", format = "json", data = "<request>")]
+async fn search(
     request: Json<Request<'_>>,
     tree: &State<HashMapSearchTree>,
 ) -> Value {
@@ -108,6 +108,12 @@ async fn tag(
         request.max_len.or_else(|| Some(5 as usize)),
         Option::from(result_selection),
     );
+    let results: Vec<(String, Vec<Match>, usize, usize)> = results.into_iter()
+        .map(|(string, mtches, start, end)| {
+            let mut mtches = mtches.into_iter().collect::<Vec<Match>>();
+            mtches.sort();
+            (string, mtches, start, end)
+        }).collect::<Vec<(String, Vec<Match>, usize, usize)>>();
     json!({
         "status": "ok",
         "results": results
@@ -115,7 +121,7 @@ async fn tag(
 }
 
 #[catch(500)]
-fn tag_error() -> Value {
+fn search_error() -> Value {
     json!({
         "status": "error",
         "reason": "An error occurred during tree search."
@@ -166,8 +172,8 @@ fn rocket() -> _ {
     println!("Finished loading gazetteer.");
 
     rocket::build()
-        .mount("/", routes![index, submit, tag])
-        .register("/tag", catchers![tag_error])
+        .mount("/", routes![index, submit, search])
+        .register("/search", catchers![search_error])
         .attach(Template::fairing())
         .mount("/", FileServer::from(relative!("/static")))
         .manage(tree)

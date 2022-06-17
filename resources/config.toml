@@ -6,7 +6,7 @@ generate_ngrams = false
 [corpora.taxa]
 path = "resources/taxon/*.list"
 generate_abbrv = true
-generate_ngrams = false
+generate_ngrams = true
 
 [corpora.vernacular]
 path = "resources/vernacular/*.list"

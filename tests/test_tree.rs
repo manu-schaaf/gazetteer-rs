@@ -3,8 +3,8 @@ use std::collections::vec_deque::VecDeque;
 
 use rocket::http::ext::IntoCollection;
 
-use gazetteer::tree::{HashMapSearchTree, Match, MatchType, MultiTree, ResultSelection, SearchTree};
-use gazetteer::util::{read_lines, split_with_indices};
+use gazetteer::tree::{HashMapSearchTree, Match, MatchType, ResultSelection, SearchTree};
+use gazetteer::util::{read_lines};
 
 // #[test]
 // fn json_bad_get_put() {
@@ -47,8 +47,8 @@ use gazetteer::util::{read_lines, split_with_indices};
 fn test_sanitize() {
     let mut tree = HashMapSearchTree::default();
 
-    tree.insert(VecDeque::from(split_with_indices(String::from("Puffinus")).0), String::from("Puffinus"), String::from("URI:short"), MatchType::Full);
-    tree.insert(VecDeque::from(split_with_indices(String::from("p. puffinus")).0), String::from("p. puffinus"), String::from("URI:abbrv"), MatchType::Full);
+    tree.insert(VecDeque::from(vec!["Puffinus".to_string()]), String::from("Puffinus"), String::from("URI:short"), MatchType::Full);
+    tree.insert(VecDeque::from(vec!["p.".to_string(), "puffinus".to_string()]), String::from("p. puffinus"), String::from("URI:abbrv"), MatchType::Full);
 
     let result = tree.search(
         "ABC Puffinus p. puffinus X Y Z",
@@ -81,12 +81,12 @@ fn test_sample() {
     for (s, uri) in vec![("An example phrase", "uri:phrase"), ("An example", "uri:example")] {
         let s = String::from(s);
         let uri = String::from(uri);
-        let v: VecDeque<String> = s.split(" ").collect();
+        let v: VecDeque<String> = s.split(" ").map(|s| String::from(s)).collect();
         tree.insert(v, s, uri, MatchType::Full);
     }
-    println!("{:?}", tree.traverse(String::from("An xyz").split(" ").collect::<VecDeque<String>>()));
-    println!("{:?}", tree.traverse(String::from("An example").split(" ").collect::<VecDeque<String>>()));
-    println!("{:?}", tree.traverse(String::from("An example phrase").split(" ").collect::<VecDeque<String>>()));
+    println!("{:?}", tree.traverse(String::from("An xyz").split(" ").map(|s| String::from(s)).collect::<VecDeque<String>>()));
+    println!("{:?}", tree.traverse(String::from("An example").split(" ").map(|s| String::from(s)).collect::<VecDeque<String>>()));
+    println!("{:?}", tree.traverse(String::from("An example phrase").split(" ").map(|s| String::from(s)).collect::<VecDeque<String>>()));
 }
 
 #[test]
@@ -111,13 +111,34 @@ fn test_big_multi_tree() {
 }
 
 #[test]
-fn test_big_multi_balanced() {
-    let mut filter_list = read_lines("resources/filter_de.txt");
-    filter_list.sort_unstable();
-
-    let mut tree = MultiTree::default();
-    tree.load("resources/taxa/_current/taxon/*.list", false, true, Option::from(&filter_list));
-    tree.load("resources/taxa/_current/vernacular/*.list", false, false, Option::from(&filter_list));
-    let tree = tree;
-    process_test_file(&tree, Option::from(5));
+fn test_match_sort() {
+    let mut mtches = vec![
+        Match {
+            match_type: MatchType::Abbreviated,
+            match_string: "1_FULL".to_string(),
+            match_uri: "1_URI".to_string(),
+        },
+        Match {
+            match_type: MatchType::Abbreviated,
+            match_string: "1_ABBRV".to_string(),
+            match_uri: "2_URI".to_string(),
+        },
+        Match {
+            match_type: MatchType::NGram,
+            match_string: "1_NGRAM".to_string(),
+            match_uri: "3_URI".to_string(),
+        },
+        Match {
+            match_type: MatchType::Full,
+            match_string: "1_FULL".to_string(),
+            match_uri: "1_URI".to_string(),
+        },
+        Match {
+            match_type: MatchType::None,
+            match_string: "_".to_string(),
+            match_uri: "_".to_string(),
+        },
+    ];
+    mtches.sort();
+    println!("{:?}", mtches);
 }

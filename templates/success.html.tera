@@ -19,28 +19,29 @@
 
     <h3>Results</h3>
     <ul>
-        {% for result in results %}
-            <li>"{{ result[0] }}" ({{ result[2] }},{{ result[3] }})
-                {% if result[1] | length > 1 %}
+        {% for result in results -%}
+            {% set matches = result[1] %}
+            <li>"{{ result[0] }}" ({{ result[2] }}, {{ result[3] }})
+                {% if matches | length > 1 %}
                     <details>
                         <summary>
-                            String matches {{ result[1] | length }} entities
+                            String matches {{ matches | length }} entities
                         </summary>
                         <ul>
-                            {% for match in result[1] %}
+                            {% for match in matches -%}
                                 <li><a href="{{ match.match_uri }}">{{ match.match_type }} Match: {{ match.match_string }} ({{ match.match_uri }})</a></li>
-                            {% endfor %}
+                            {%- endfor %}
                         </ul>
                     </details>
                 {% else %}
                     <ul>
-                        {% for match in result[1] %}
+                        {% for match in matches -%}
                             <li><a href="{{ match.match_uri }}">{{ match.match_type }} Match: {{ match.match_string }} ({{ match.match_uri }})</a></li>
-                        {% endfor %}
+                        {%- endfor %}
                     </ul>
                 {% endif %}
             </li>
-        {% endfor %}
+        {%- endfor %}
     </ul>
 
     <a href="/">&lt; Submit Another</a>

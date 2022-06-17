@@ -72,9 +72,9 @@ impl Display for MatchType {
 #[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Match {
-    match_type: MatchType,
-    match_string: String,
-    match_uri: String,
+    pub match_type: MatchType,
+    pub match_string: String,
+    pub match_uri: String,
 }
 
 impl Hash for Match {

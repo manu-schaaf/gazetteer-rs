@@ -159,7 +159,7 @@ pub trait SearchTree: Sync + Send {
         if generate_ngrams {
             let ngrams = Self::generate_ngrams(&entries);
 
-            let pb = ProgressBar::new(entries.len() as u64);
+            let pb = ProgressBar::new(ngrams.len() as u64);
             pb.set_style(ProgressStyle::with_template(
                 "Loading n-Grams {bar:40} {pos}/{len} {msg}"
             ).unwrap());
@@ -170,7 +170,7 @@ pub trait SearchTree: Sync + Send {
         if generate_abbrv {
             let abbreviations = Self::generate_abbreviations(&entries);
 
-            let pb = ProgressBar::new(entries.len() as u64);
+            let pb = ProgressBar::new(abbreviations.len() as u64);
             pb.set_style(ProgressStyle::with_template(
                 "Loading Abbreviations {bar:40} {pos}/{len} {msg}"
             ).unwrap());

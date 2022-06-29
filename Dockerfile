@@ -9,7 +9,7 @@ COPY templates/ templates/
 COPY resources/ resources/
 COPY *.toml .
 
-RUN cargo build --features="server" --release
-
 EXPOSE 80
-CMD ["./target/release/gazetteer"]
+
+RUN cargo build --release
+CMD ["cargo", "run", "--release"]

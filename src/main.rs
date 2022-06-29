@@ -11,16 +11,21 @@ use rocket::{form, State};
 use rocket::form::{Context, Contextual, Error, Form, FromForm};
 use rocket::fs::{FileServer, relative, TempFile};
 use rocket::http::Status;
-use rocket::serde::{Deserialize, Serialize};
-use rocket::serde::json::{Json, Value};
-use rocket::serde::json::serde_json::json;
+use rocket::serde::json::Json;
 use rocket_dyn_templates::{context, Template};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use serde_json::Value;
 
 use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection, SearchTree};
 use gazetteer::util::read_lines;
 
 #[cfg(test)]
 mod rocket_test;
+
+const DEFAULT_MAX_LEN: usize = 5;
+const DEFAULT_GENERATE_ABBRV: bool = false;
+const DEFAULT_GENERATE_NGRAMS: bool = false;
 
 #[derive(Debug, FromForm)]
 struct Submit<'v> {
@@ -32,11 +37,10 @@ struct Submit<'v> {
 
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
 struct Request<'r> {
     text: Cow<'r, str>,
     max_len: Option<usize>,
-    result_selection: Option<Cow<'r, str>>,
+    result_selection: Option<ResultSelection>,
 }
 
 fn file_or_text<'v>(text: &'v str, file: &TempFile) -> form::Result<'v, String> {
@@ -91,22 +95,10 @@ async fn search(
     request: Json<Request<'_>>,
     tree: &State<HashMapSearchTree>,
 ) -> Value {
-    let result_selection = match &request.result_selection {
-        Some(sel) => match sel.as_ref() {
-            "All" => &ResultSelection::All,
-            "Last" => &ResultSelection::Last,
-            "Longest" => &ResultSelection::Longest,
-            _ => {
-                println!("Unknown result selection method '{}', defaulting to 'Longest'", sel);
-                &ResultSelection::Longest
-            }
-        },
-        None => &ResultSelection::Longest
-    };
     let results = tree.search(
         &request.text,
-        request.max_len.or_else(|| Some(5 as usize)),
-        Option::from(result_selection),
+        request.max_len.or_else(|| Some(DEFAULT_MAX_LEN)),
+        Option::from(&request.result_selection),
     );
     let results: Vec<(String, Vec<Match>, usize, usize)> = results.into_iter()
         .map(|(string, mtches, start, end)| {
@@ -129,7 +121,6 @@ fn search_error() -> Value {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
 struct Config {
     filter_path: Option<String>,
     generate_abbrv: Option<bool>,
@@ -138,7 +129,6 @@ struct Config {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
 struct Corpus {
     path: String,
     filter_path: Option<String>,
@@ -157,8 +147,8 @@ fn rocket() -> _ {
 
     for corpus in config.corpora.values() {
         let path: &String = &corpus.path;
-        let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| false));
-        let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| false));
+        let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| DEFAULT_GENERATE_ABBRV));
+        let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| DEFAULT_GENERATE_NGRAMS));
         if let Some(_filter_path) = &corpus.filter_path {
             let _lines = read_lines(Path::new(&_filter_path));
             let _filter_list = Option::from(_lines);
@@ -178,15 +168,3 @@ fn rocket() -> _ {
         .mount("/", FileServer::from(relative!("/static")))
         .manage(tree)
 }
-
-// fn main() {
-//     println!("Hello World")
-//     // let (tree, symspell) = util::load_symspell("resources/taxa/Lichen/".to_string(), "resources/de-100k.txt");
-//     // let string = String::from("Lyronna dolichobellum abc abc").to_lowercase();
-//     // println!("{:?}", tree.traverse(string.clone().split(' ').collect::<VecDeque<&str>>()));
-//     // let results = symspell.lookup_compound(string.as_str(), 2);
-//     // if results.len() > 0 {
-//     //     println!("{}", results[0].term);
-//     //     println!("{:?}", tree.traverse(results[0].term.split(' ').collect::<VecDeque<&str>>()));
-//     // }
-// }

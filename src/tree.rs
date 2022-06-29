@@ -8,25 +8,19 @@ use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use ngrams::Ngram;
 use rayon::prelude::*;
-#[cfg(feature = "server")]
-use rocket::form::FromFormField;
-#[cfg(feature = "server")]
-use rocket::serde::{Deserialize, Serialize};
+use rocket::FromFormField;
+use serde::{Deserialize, Serialize};
 
 use crate::util::{get_files, parse_files, Tokenizer};
 
-#[cfg_attr(feature = "server", derive(FromFormField, Serialize, Deserialize))]
-#[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, FromFormField)]
 pub enum ResultSelection {
     All,
     Last,
     Longest,
 }
 
-#[cfg_attr(feature = "server", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum MatchType {
     None,
     Full,
@@ -68,9 +62,7 @@ impl Display for MatchType {
     }
 }
 
-#[cfg_attr(feature = "server", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "server", serde(crate = "rocket::serde"))]
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Match {
     pub match_type: MatchType,
     pub match_string: String,

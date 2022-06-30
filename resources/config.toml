@@ -4,6 +4,6 @@ generate_ngrams = false
 
 [corpora]
 [corpora.example]
-path = "resources/example.list"
+path = "resources/example.tsv"
 generate_abbrv = true
 generate_ngrams = true

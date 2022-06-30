@@ -8,15 +8,21 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use itertools::Itertools;
-use rocket::{form, State};
+#[cfg(feature = "gui")]
+use rocket::form;
+#[cfg(feature = "gui")]
 use rocket::form::{Context, Contextual, Error, Form, FromForm};
-use rocket::fs::{FileServer, NamedFile, relative, TempFile};
+use rocket::fs::NamedFile;
+#[cfg(feature = "gui")]
+use rocket::fs::{FileServer, relative, TempFile};
+#[cfg(feature = "gui")]
 use rocket::http::Status;
 use rocket::serde::json::Json;
+use rocket::State;
+#[cfg(feature = "gui")]
 use rocket_dyn_templates::{context, Template};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection, SearchTree};
 use gazetteer::util::read_lines;
@@ -28,89 +34,11 @@ const DEFAULT_MAX_LEN: usize = 5;
 const DEFAULT_GENERATE_ABBRV: bool = false;
 const DEFAULT_GENERATE_NGRAMS: bool = false;
 
-#[derive(Debug, FromForm)]
-struct Submit<'v> {
-    text: &'v str,
-    file: TempFile<'v>,
-    max_len: usize,
-    result_selection: ResultSelection,
-}
-
-
 #[derive(Debug, Serialize, Deserialize)]
 struct Request<'r> {
     text: Cow<'r, str>,
     max_len: Option<usize>,
     result_selection: Option<ResultSelection>,
-}
-
-fn file_or_text<'v>(text: &'v str, file: &TempFile) -> form::Result<'v, String> {
-    if !(
-        text.len() > 1 || file.content_type().is_some_and(|t| t.is_text())) {
-        Err(Error::validation("You must either enter text or upload a file!"))?
-    } else if !text.is_empty() {
-        Ok(String::from(text))
-    } else {
-        Ok(read_lines(file.path().unwrap().to_str().unwrap()).join(""))
-    }
-}
-
-
-#[get("/")]
-fn index() -> Template {
-    Template::render("index", &Context::default())
-}
-
-#[post("/", data = "<form>")]
-fn submit<'r>(mut form: Form<Contextual<'r, Submit<'r>>>, tree: &State<HashMapSearchTree>) -> (Status, Template) {
-    let template = match form.value {
-        Some(ref submission) => {
-            // println!("submission: {:#?}", submission);
-            match file_or_text(submission.text, &submission.file) {
-                Ok(text) => {
-                    let results = tree.search(&text, Option::from(submission.max_len), Option::from(&submission.result_selection));
-                    // for result in results.iter() {
-                    //     println!("{:?} ({},{}) -> {:?}", result.0, result.2, result.2, result.1)
-                    // }
-                    Template::render("success", context! {
-                        text: text,
-                        results: results,
-                    })
-                }
-                Err(errs) => {
-                    for err in errs {
-                        form.context.push_error(err.with_name("file"));
-                    }
-                    Template::render("index", &form.context)
-                }
-            }
-        }
-        None => Template::render("index", &form.context),
-    };
-
-    (form.context.status(), template)
-}
-
-#[post("/search", format = "json", data = "<request>")]
-async fn search(
-    request: Json<Request<'_>>,
-    tree: &State<HashMapSearchTree>,
-) -> Value {
-    let results = tree.search(
-        &request.text,
-        request.max_len.or_else(|| Some(DEFAULT_MAX_LEN)),
-        Option::from(&request.result_selection),
-    );
-    let results: Vec<(String, Vec<Match>, usize, usize)> = results.into_iter()
-        .map(|(string, mtches, begin, end)| {
-            let mut mtches = mtches.into_iter().collect::<Vec<Match>>();
-            mtches.sort();
-            (string, mtches, begin, end)
-        }).collect::<Vec<(String, Vec<Match>, usize, usize)>>();
-    json!({
-        "status": "ok",
-        "results": results
-    })
 }
 
 #[get("/v1/communication_layer")]
@@ -152,14 +80,6 @@ async fn v1_process(
     json!(results)
 }
 
-#[catch(500)]
-fn search_error() -> Value {
-    json!({
-        "status": "error",
-        "reason": "An error occurred during tree search."
-    })
-}
-
 #[derive(Serialize, Deserialize)]
 struct Config {
     filter_path: Option<String>,
@@ -176,6 +96,128 @@ struct Corpus {
     generate_ngrams: Option<bool>,
 }
 
+#[cfg(not(feature = "gui"))]
+#[launch]
+fn rocket() -> _ {
+    let config = read_lines("resources/config.toml").join("\n");
+    let config: Config = toml::from_str(&config).unwrap();
+
+    let mut tree = HashMapSearchTree::default();
+    let lines = config.filter_path.map_or_else(|| Vec::new(), |p| read_lines(Path::new(&p)));
+    let filter_list = if lines.len() == 0 { None } else { Option::from(&lines) };
+
+    for corpus in config.corpora.values() {
+        let path: &String = &corpus.path;
+        let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| DEFAULT_GENERATE_ABBRV));
+        let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| DEFAULT_GENERATE_NGRAMS));
+        if let Some(_filter_path) = &corpus.filter_path {
+            let _lines = read_lines(Path::new(&_filter_path));
+            let _filter_list = Option::from(_lines);
+            tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
+        } else {
+            tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
+        }
+    }
+    let tree = tree;
+
+    println!("Finished loading gazetteer.");
+
+    rocket::build()
+        .mount("/", routes![v1_process, v1_communication_layer])
+        .manage(tree)
+}
+
+#[cfg(feature = "gui")]
+#[derive(Debug, FromForm)]
+struct Submit<'v> {
+    text: &'v str,
+    file: TempFile<'v>,
+    max_len: usize,
+    result_selection: ResultSelection,
+}
+
+#[cfg(feature = "gui")]
+fn file_or_text<'v>(text: &'v str, file: &TempFile) -> form::Result<'v, String> {
+    if !(
+        text.len() > 1 || file.content_type().is_some_and(|t| t.is_text())) {
+        Err(Error::validation("You must either enter text or upload a file!"))?
+    } else if !text.is_empty() {
+        Ok(String::from(text))
+    } else {
+        Ok(read_lines(file.path().unwrap().to_str().unwrap()).join(""))
+    }
+}
+
+#[cfg(feature = "gui")]
+#[get("/")]
+fn index() -> Template {
+    Template::render("index", &Context::default())
+}
+
+#[cfg(feature = "gui")]
+#[post("/", data = "<form>")]
+fn submit<'r>(mut form: Form<Contextual<'r, Submit<'r>>>, tree: &State<HashMapSearchTree>) -> (Status, Template) {
+    let template = match form.value {
+        Some(ref submission) => {
+            // println!("submission: {:#?}", submission);
+            match file_or_text(submission.text, &submission.file) {
+                Ok(text) => {
+                    let results = tree.search(&text, Option::from(submission.max_len), Option::from(&submission.result_selection));
+                    // for result in results.iter() {
+                    //     println!("{:?} ({},{}) -> {:?}", result.0, result.2, result.2, result.1)
+                    // }
+                    Template::render("success", context! {
+                        text: text,
+                        results: results,
+                    })
+                }
+                Err(errs) => {
+                    for err in errs {
+                        form.context.push_error(err.with_name("file"));
+                    }
+                    Template::render("index", &form.context)
+                }
+            }
+        }
+        None => Template::render("index", &form.context),
+    };
+
+    (form.context.status(), template)
+}
+
+#[cfg(feature = "gui")]
+#[post("/search", format = "json", data = "<request>")]
+async fn search(
+    request: Json<Request<'_>>,
+    tree: &State<HashMapSearchTree>,
+) -> Value {
+    let results = tree.search(
+        &request.text,
+        request.max_len.or_else(|| Some(DEFAULT_MAX_LEN)),
+        Option::from(&request.result_selection),
+    );
+    let results: Vec<(String, Vec<Match>, usize, usize)> = results.into_iter()
+        .map(|(string, mtches, begin, end)| {
+            let mut mtches = mtches.into_iter().collect::<Vec<Match>>();
+            mtches.sort();
+            (string, mtches, begin, end)
+        }).collect::<Vec<(String, Vec<Match>, usize, usize)>>();
+    json!({
+        "status": "ok",
+        "results": results
+    })
+}
+
+#[cfg(feature = "gui")]
+#[catch(500)]
+fn search_error() -> Value {
+    json!({
+        "status": "error",
+        "reason": "An error occurred during tree search."
+    })
+}
+
+#[cfg(feature = "gui")]
 #[launch]
 fn rocket() -> _ {
     let config = read_lines("resources/config.toml").join("\n");

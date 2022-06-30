@@ -5,6 +5,7 @@ extern crate rocket;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::env;
 use std::path::Path;
 
 use itertools::Itertools;
@@ -12,9 +13,9 @@ use itertools::Itertools;
 use rocket::form;
 #[cfg(feature = "gui")]
 use rocket::form::{Context, Contextual, Error, Form, FromForm};
-use rocket::fs::NamedFile;
 #[cfg(feature = "gui")]
 use rocket::fs::{FileServer, relative, TempFile};
+use rocket::fs::NamedFile;
 #[cfg(feature = "gui")]
 use rocket::http::Status;
 use rocket::serde::json::Json;
@@ -99,7 +100,13 @@ struct Corpus {
 #[cfg(not(feature = "gui"))]
 #[launch]
 fn rocket() -> _ {
-    let config = read_lines("resources/config.toml").join("\n");
+    let args: Vec<String> = env::args().collect();
+    let config: String = if args.len() > 1 {
+        std::fs::read_to_string(&args[1]).unwrap()
+    } else {
+        std::fs::read_to_string("config.toml").unwrap()
+    };
+
     let config: Config = toml::from_str(&config).unwrap();
 
     let mut tree = HashMapSearchTree::default();
@@ -220,7 +227,13 @@ fn search_error() -> Value {
 #[cfg(feature = "gui")]
 #[launch]
 fn rocket() -> _ {
-    let config = read_lines("resources/config.toml").join("\n");
+    let args: Vec<String> = env::args().collect();
+    let config: String = if args.len() > 1 {
+        std::fs::read_to_string(&args[1]).unwrap()
+    } else {
+        std::fs::read_to_string("config.toml").unwrap()
+    };
+
     let config: Config = toml::from_str(&config).unwrap();
 
     let mut tree = HashMapSearchTree::default();

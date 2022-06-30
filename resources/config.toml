@@ -3,10 +3,7 @@ generate_abbrv = false
 generate_ngrams = false
 
 [corpora]
-[corpora.taxa]
-path = "resources/taxon/*.list"
+[corpora.example]
+path = "resources/example.list"
 generate_abbrv = true
 generate_ngrams = true
-
-[corpora.vernacular]
-path = "resources/vernacular/*.list"

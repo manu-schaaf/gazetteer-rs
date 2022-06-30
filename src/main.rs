@@ -7,9 +7,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 
+use itertools::Itertools;
 use rocket::{form, State};
 use rocket::form::{Context, Contextual, Error, Form, FromForm};
-use rocket::fs::{FileServer, relative, TempFile};
+use rocket::fs::{FileServer, NamedFile, relative, TempFile};
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket_dyn_templates::{context, Template};
@@ -101,15 +102,54 @@ async fn search(
         Option::from(&request.result_selection),
     );
     let results: Vec<(String, Vec<Match>, usize, usize)> = results.into_iter()
-        .map(|(string, mtches, start, end)| {
+        .map(|(string, mtches, begin, end)| {
             let mut mtches = mtches.into_iter().collect::<Vec<Match>>();
             mtches.sort();
-            (string, mtches, start, end)
+            (string, mtches, begin, end)
         }).collect::<Vec<(String, Vec<Match>, usize, usize)>>();
     json!({
         "status": "ok",
         "results": results
     })
+}
+
+#[get("/v1/communication_layer")]
+async fn v1_communication_layer() -> Option<NamedFile> {
+    NamedFile::open("communication_layer.lua").await.ok()
+}
+
+#[post("/v1/process", data = "<request>")]
+async fn v1_process(
+    request: Json<Request<'_>>,
+    tree: &State<HashMapSearchTree>,
+) -> Value {
+    let results = tree.search(
+        &request.text,
+        request.max_len.or_else(|| Some(DEFAULT_MAX_LEN)),
+        Option::from(&request.result_selection),
+    );
+    let results: Vec<Value> = results.into_iter()
+        .map(|(string, mtches, begin, end)| {
+            let mtches = mtches.into_iter().sorted().collect::<Vec<Match>>();
+            let match_uris = mtches.iter()
+                .map(|mtch| &mtch.match_uri)
+                .join(" | ");
+            let match_types = mtches.iter()
+                .map(|mtch| mtch.match_type.to_string())
+                .join(" | ");
+            let match_strings = mtches.iter()
+                .map(|mtch| &mtch.match_string)
+                .join(" | ");
+            json!({
+                "string": string,
+                "match_uris": match_uris,
+                "match_types": match_types,
+                "match_strings": match_strings,
+                "begin": begin,
+                "end": end,
+            })
+        }).collect::<Vec<Value>>();
+    json!(results)
 }
 
 #[catch(500)]
@@ -162,7 +202,7 @@ fn rocket() -> _ {
     println!("Finished loading gazetteer.");
 
     rocket::build()
-        .mount("/", routes![index, submit, search])
+        .mount("/", routes![index, submit, search, v1_process, v1_communication_layer])
         .register("/search", catchers![search_error])
         .attach(Template::fairing())
         .mount("/", FileServer::from(relative!("/static")))

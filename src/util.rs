@@ -24,7 +24,7 @@ pub fn read_lines(filename: &str) -> Vec<String> {
         "gz" => {
             let mut s = String::new();
             GzDecoder::new(reader).read_to_string(&mut s);
-            s.lines().map(|s|String::from(s)).collect::<Vec<String>>()
+            s.lines().map(|s| String::from(s)).collect::<Vec<String>>()
         }
         _ => {
             reader.lines().filter_map(|line| line.ok()).collect::<Vec<String>>()
@@ -107,12 +107,16 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
         .filter(|line| line.len() > 0)
         .map(|line| {
             let split = line.split('\t').collect::<Vec<&str>>();
-            let taxon = String::from(split[0]);
-            let uri = String::from(split[1]);
-            (taxon, uri, MatchType::Full)
+            let search_term = String::from(split[0]);
+            let label = if split.len() > 1 {
+                String::from(split[1])
+            } else {
+                String::with_capacity(0)
+            };
+            (search_term, label, MatchType::Full)
         })
-        .filter(|(taxon, _, _)| {
-            filter_list.len() == 0 || !filter_list.contains(&taxon.to_lowercase())
+        .filter(|(search_term, _, _)| {
+            filter_list.len() == 0 || !filter_list.contains(&search_term.to_lowercase())
         })
         .collect::<Vec<(String, String, MatchType)>>()
 }

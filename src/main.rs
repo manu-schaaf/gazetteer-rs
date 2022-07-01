@@ -6,7 +6,6 @@ extern crate rocket;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
-use std::path::Path;
 
 use itertools::Itertools;
 #[cfg(feature = "gui")]
@@ -110,7 +109,7 @@ fn rocket() -> _ {
     let config: Config = toml::from_str(&config).unwrap();
 
     let mut tree = HashMapSearchTree::default();
-    let lines = config.filter_path.map_or_else(|| Vec::new(), |p| read_lines(Path::new(&p)));
+    let lines = config.filter_path.map_or_else(|| Vec::new(), |p| read_lines(&p));
     let filter_list = if lines.len() == 0 { None } else { Option::from(&lines) };
 
     for corpus in config.corpora.values() {
@@ -118,7 +117,7 @@ fn rocket() -> _ {
         let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| DEFAULT_GENERATE_ABBRV));
         let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| DEFAULT_GENERATE_NGRAMS));
         if let Some(_filter_path) = &corpus.filter_path {
-            let _lines = read_lines(Path::new(&_filter_path));
+            let _lines = read_lines(&_filter_path);
             let _filter_list = Option::from(_lines);
             tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
         } else {
@@ -237,7 +236,7 @@ fn rocket() -> _ {
     let config: Config = toml::from_str(&config).unwrap();
 
     let mut tree = HashMapSearchTree::default();
-    let lines = config.filter_path.map_or_else(|| Vec::new(), |p| read_lines(Path::new(&p)));
+    let lines = config.filter_path.map_or_else(|| Vec::new(), |p| read_lines(&p));
     let filter_list = if lines.len() == 0 { None } else { Option::from(&lines) };
 
     for corpus in config.corpora.values() {
@@ -245,7 +244,7 @@ fn rocket() -> _ {
         let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| DEFAULT_GENERATE_ABBRV));
         let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| DEFAULT_GENERATE_NGRAMS));
         if let Some(_filter_path) = &corpus.filter_path {
-            let _lines = read_lines(Path::new(&_filter_path));
+            let _lines = read_lines(&_filter_path);
             let _filter_list = Option::from(_lines);
             tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
         } else {

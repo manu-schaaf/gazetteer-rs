@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 use std::fs::File;
 use std::io;
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 use std::path::Path;
 
+use flate2::bufread::GzDecoder;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -15,11 +16,20 @@ use tokenizers::pre_tokenizers::whitespace::Whitespace;
 
 use crate::tree::MatchType;
 
-pub fn read_lines<P>(filename: P) -> Vec<String>
-    where P: AsRef<Path> {
-    let file = File::open(filename).expect("Could not open file");
-    let lines = io::BufReader::new(file).lines();
-    lines.filter_map(|line| line.ok()).collect::<Vec<String>>()
+pub fn read_lines(filename: &str) -> Vec<String> {
+    let extension = Path::new(filename.clone()).extension().unwrap().to_str().unwrap();
+    let file = File::open(Path::new(filename)).expect("Could not open file");
+    let reader = io::BufReader::new(file);
+    match extension {
+        "gz" => {
+            let mut s = String::new();
+            GzDecoder::new(reader).read_to_string(&mut s);
+            s.lines().map(|s|String::from(s)).collect::<Vec<String>>()
+        }
+        _ => {
+            reader.lines().filter_map(|line| line.ok()).collect::<Vec<String>>()
+        }
+    }
 }
 
 pub fn get_files(root_path: &str) -> Vec<String> {

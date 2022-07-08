@@ -259,6 +259,6 @@ fn rocket() -> _ {
         .mount("/", routes![index, submit, search, v1_process, v1_communication_layer])
         .register("/search", catchers![search_error])
         .attach(Template::fairing())
-        .mount("/", FileServer::from("/static"))
+        .mount("/", FileServer::from("static"))
         .manage(tree)
 }

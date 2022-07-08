@@ -24,8 +24,8 @@ use rocket_dyn_templates::{context, Template};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection, SearchTree};
-use gazetteer::util::read_lines;
+use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection};
+use gazetteer::util::{read_lines, Tokenizer};
 
 #[cfg(test)]
 mod rocket_test;
@@ -85,6 +85,7 @@ struct Config {
     filter_path: Option<String>,
     generate_abbrv: Option<bool>,
     generate_ngrams: Option<bool>,
+    tokenizer_path: Option<String>,
     corpora: HashMap<String, Corpus>,
 }
 
@@ -235,7 +236,12 @@ fn rocket() -> _ {
 
     let config: Config = toml::from_str(&config).unwrap();
 
-    let mut tree = HashMapSearchTree::default();
+    let mut tree: HashMapSearchTree = if let Some(tokenizer_path) = config.tokenizer_path {
+        HashMapSearchTree::with_tokenizer(Option::from(Tokenizer::from_file(&tokenizer_path)))
+    } else {
+        HashMapSearchTree::default()
+    };
+
     let lines = config.filter_path.map_or_else(|| Vec::new(), |p| read_lines(&p));
     let filter_list = if lines.len() == 0 { None } else { Option::from(&lines) };
 
@@ -259,6 +265,6 @@ fn rocket() -> _ {
         .mount("/", routes![index, submit, search, v1_process, v1_communication_layer])
         .register("/search", catchers![search_error])
         .attach(Template::fairing())
-        .mount("/", FileServer::from("/static"))
+        .mount("/", FileServer::from("static/"))
         .manage(tree)
 }

@@ -8,10 +8,11 @@ use flate2::bufread::GzDecoder;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use tokenizers::{Normalizer, OffsetReferential, OffsetType, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior};
+use tokenizers::{Normalizer, NormalizerWrapper, OffsetReferential, OffsetType, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior};
 use tokenizers::normalizers::NFKC;
+use tokenizers::normalizers::Sequence as NormalizerSequence;
 use tokenizers::pre_tokenizers::punctuation::Punctuation;
-use tokenizers::pre_tokenizers::sequence::Sequence;
+use tokenizers::pre_tokenizers::sequence::Sequence as PreTokenizerSequence;
 use tokenizers::pre_tokenizers::whitespace::Whitespace;
 
 use crate::tree::MatchType;
@@ -123,18 +124,20 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
 
 #[derive(Debug)]
 pub struct Tokenizer {
-    normalizer: NFKC,
-    pre_tokenizer: Sequence,
+    normalizer: NormalizerWrapper,
+    pre_tokenizer: PreTokenizerWrapper,
 }
 
 impl Tokenizer {
     pub fn default() -> Tokenizer {
         Tokenizer {
-            normalizer: NFKC::default(),
-            pre_tokenizer: Sequence::new(vec![
+            normalizer: NormalizerWrapper::Sequence(NormalizerSequence::new(vec![
+                NormalizerWrapper::NFKC(NFKC::default()),
+            ])),
+            pre_tokenizer: PreTokenizerWrapper::Sequence(PreTokenizerSequence::new(vec![
                 PreTokenizerWrapper::Punctuation(Punctuation::new(SplitDelimiterBehavior::Removed)),
                 PreTokenizerWrapper::Whitespace(Whitespace::default()),
-            ]),
+            ])),
         }
     }
 

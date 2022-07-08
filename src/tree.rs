@@ -117,15 +117,38 @@ impl Match {
 }
 
 
-pub trait SearchTree: Sync + Send {
-    fn default() -> Self
-        where Self: Sized;
+#[derive(Debug)]
+pub struct HashMapSearchTree {
+    pub matches: HashSet<Match>,
+    pub children: HashMap<String, HashMapSearchTree>,
+    tokenizer: Option<Tokenizer>,
+}
 
-    fn tokenize(&self, input: &str) -> Result<(Vec<String>, Vec<(usize, usize)>), String>;
+impl HashMapSearchTree {
+    pub fn default() -> Self where Self: Sized {
+        HashMapSearchTree {
+            matches: HashSet::new(),
+            children: HashMap::new(),
+            tokenizer: Option::from(Tokenizer::default()),
+        }
+    }
 
-    fn tokenize_batch(&self, input: &[String]) -> Result<Vec<(Vec<String>, Vec<(usize, usize)>)>, String>;
+    fn from(match_string: String, match_uri: String) -> Self {
+        Self {
+            matches: HashSet::from([Match::full(match_string, match_uri)]),
+            children: HashMap::new(),
+            tokenizer: None,
+        }
+    }
 
-    fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
+    fn child() -> Self {
+        HashMapSearchTree {
+            tokenizer: None,
+            ..HashMapSearchTree::default()
+        }
+    }
+
+    pub fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
         let files: Vec<String> = get_files(root_path);
         println!("Found {} files to read", files.len());
 
@@ -168,6 +191,41 @@ pub trait SearchTree: Sync + Send {
             ).unwrap());
             self.load_entries(abbreviations, Some(&pb));
             pb.finish_with_message("Done");
+        }
+    }
+
+    fn load_entries(&mut self, entries: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>) {
+        for (segments, taxon, uri, match_type) in entries {
+            self.insert(VecDeque::from(segments), taxon, uri, match_type);
+
+            if let Some(pb) = pb {
+                pb.inc(1)
+            }
+        }
+    }
+
+    pub fn insert(&mut self, mut values: VecDeque<String>, match_string: String, match_uri: String, match_type: MatchType) {
+        if let Some(value) = values.pop_front() {
+            let value = value.to_lowercase();
+            match self.children.get_mut(&value) {
+                Some(mut child) => {
+                    if values.is_empty() {
+                        child.matches.insert(Match { match_type, match_string, match_uri });
+                    } else {
+                        child.insert(values, match_string, match_uri, match_type);
+                    }
+                }
+                None => {
+                    if values.is_empty() {
+                        self.children.insert(value, HashMapSearchTree::from(match_string, match_uri));
+                    } else {
+                        match self.children.try_insert(value, HashMapSearchTree::child()) {
+                            Ok(child) => { child.insert(values, match_string, match_uri, match_type); }
+                            Err(err) => { panic!("{:?}", err) }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -234,7 +292,27 @@ pub trait SearchTree: Sync + Send {
         abbrevations
     }
 
-    fn load_entries(&mut self, entries: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>);
+    fn tokenize(&self, input: &str) -> Result<(Vec<String>, Vec<(usize, usize)>), String> {
+        match &self.tokenizer {
+            Some(tokenizer) => {
+                Ok(tokenizer.tokenize(input))
+            }
+            None => {
+                Err(String::from("Missing tokenizer!"))
+            }
+        }
+    }
+
+    fn tokenize_batch(&self, input: &[String]) -> Result<Vec<(Vec<String>, Vec<(usize, usize)>)>, String> {
+        match &self.tokenizer {
+            Some(tokenizer) => {
+                Ok(tokenizer.encode_batch(input))
+            }
+            None => {
+                Err(String::from("Missing tokenizer!"))
+            }
+        }
+    }
 
     fn traverse(&self, values: VecDeque<String>) -> Result<Vec<(Vec<String>, &HashSet<Match>)>, String> {
         let vec = self.traverse_internal(values, Vec::new(), Vec::new());
@@ -245,14 +323,7 @@ pub trait SearchTree: Sync + Send {
         }
     }
 
-    fn traverse_internal<'a>(
-        &'a self,
-        values: VecDeque<String>,
-        matched_string_buffer: Vec<String>,
-        results: Vec<(Vec<String>, &'a HashSet<Match>)>,
-    ) -> Vec<(Vec<String>, &'a HashSet<Match>)>;
-
-    fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, HashSet<Match>, usize, usize)> {
+    pub fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, HashSet<Match>, usize, usize)> {
         let result_selection = result_selection.unwrap_or(&ResultSelection::Longest);
         let max_len = max_len.unwrap_or(5 as usize);
 
@@ -306,55 +377,6 @@ pub trait SearchTree: Sync + Send {
 
         results
     }
-}
-
-#[derive(Debug)]
-pub struct HashMapSearchTree {
-    pub matches: HashSet<Match>,
-    pub children: HashMap<String, HashMapSearchTree>,
-    tokenizer: Option<Tokenizer>,
-}
-
-impl SearchTree for HashMapSearchTree {
-    fn default() -> Self where Self: Sized {
-        HashMapSearchTree {
-            matches: HashSet::new(),
-            children: HashMap::new(),
-            tokenizer: Option::from(Tokenizer::default()),
-        }
-    }
-
-    fn tokenize(&self, input: &str) -> Result<(Vec<String>, Vec<(usize, usize)>), String> {
-        match &self.tokenizer {
-            Some(tokenizer) => {
-                Ok(tokenizer.tokenize(input))
-            }
-            None => {
-                Err(String::from("Missing tokenizer!"))
-            }
-        }
-    }
-
-    fn tokenize_batch(&self, input: &[String]) -> Result<Vec<(Vec<String>, Vec<(usize, usize)>)>, String> {
-        match &self.tokenizer {
-            Some(tokenizer) => {
-                Ok(tokenizer.encode_batch(input))
-            }
-            None => {
-                Err(String::from("Missing tokenizer!"))
-            }
-        }
-    }
-
-    fn load_entries(&mut self, entries: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>) {
-        for (segments, taxon, uri, match_type) in entries {
-            self.insert(VecDeque::from(segments), taxon, uri, match_type);
-
-            if let Some(pb) = pb {
-                pb.inc(1)
-            }
-        }
-    }
 
     fn traverse_internal<'a>(
         &'a self,
@@ -378,47 +400,6 @@ impl SearchTree for HashMapSearchTree {
             }
             None => {
                 results
-            }
-        }
-    }
-}
-
-impl HashMapSearchTree {
-    fn from(match_string: String, match_uri: String) -> Self {
-        Self {
-            matches: HashSet::from([Match::full(match_string, match_uri)]),
-            children: HashMap::new(),
-            tokenizer: None,
-        }
-    }
-
-    fn child() -> Self {
-        HashMapSearchTree {
-            tokenizer: None,
-            ..HashMapSearchTree::default()
-        }
-    }
-
-    pub fn insert(&mut self, mut values: VecDeque<String>, match_string: String, match_uri: String, match_type: MatchType) {
-        if let Some(value) = values.pop_front() {
-            match self.children.get_mut(&value.to_lowercase()) {
-                Some(mut child) => {
-                    if values.is_empty() {
-                        child.matches.insert(Match { match_type, match_string, match_uri });
-                    } else {
-                        child.insert(values, match_string, match_uri, match_type);
-                    }
-                }
-                None => {
-                    if values.is_empty() {
-                        self.children.insert(value, HashMapSearchTree::from(match_string, match_uri));
-                    } else {
-                        match self.children.try_insert(value, HashMapSearchTree::child()) {
-                            Ok(child) => { child.insert(values, match_string, match_uri, match_type); }
-                            Err(err) => { panic!("{:?}", err) }
-                        }
-                    }
-                }
             }
         }
     }

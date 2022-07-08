@@ -24,7 +24,7 @@ use rocket_dyn_templates::{context, Template};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection, SearchTree};
+use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection};
 use gazetteer::util::read_lines;
 
 #[cfg(test)]

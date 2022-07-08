@@ -13,7 +13,7 @@ use rocket::form;
 #[cfg(feature = "gui")]
 use rocket::form::{Context, Contextual, Error, Form, FromForm};
 #[cfg(feature = "gui")]
-use rocket::fs::{FileServer, relative, TempFile};
+use rocket::fs::{FileServer, TempFile};
 use rocket::fs::NamedFile;
 #[cfg(feature = "gui")]
 use rocket::http::Status;
@@ -259,6 +259,6 @@ fn rocket() -> _ {
         .mount("/", routes![index, submit, search, v1_process, v1_communication_layer])
         .register("/search", catchers![search_error])
         .attach(Template::fairing())
-        .mount("/", FileServer::from(relative!("/static")))
+        .mount("/", FileServer::from("/static"))
         .manage(tree)
 }

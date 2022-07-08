@@ -8,7 +8,7 @@ use flate2::bufread::GzDecoder;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use tokenizers::{Normalizer, OffsetReferential, OffsetType, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior};
+use tokenizers::{Normalizer, NormalizerWrapper, OffsetReferential, OffsetType, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior};
 use tokenizers::normalizers::NFKC;
 use tokenizers::pre_tokenizers::punctuation::Punctuation;
 use tokenizers::pre_tokenizers::sequence::Sequence;
@@ -123,18 +123,31 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
 
 #[derive(Debug)]
 pub struct Tokenizer {
-    normalizer: NFKC,
-    pre_tokenizer: Sequence,
+    normalizer: NormalizerWrapper,
+    pre_tokenizer: PreTokenizerWrapper,
 }
 
 impl Tokenizer {
     pub fn default() -> Tokenizer {
         Tokenizer {
-            normalizer: NFKC::default(),
-            pre_tokenizer: Sequence::new(vec![
+            normalizer: NormalizerWrapper::new(NFKC::default()),
+            pre_tokenizer: PreTokenizerWrapper::new(Sequence::new(vec![
                 PreTokenizerWrapper::Punctuation(Punctuation::new(SplitDelimiterBehavior::Removed)),
                 PreTokenizerWrapper::Whitespace(Whitespace::default()),
-            ]),
+            ])),
+        }
+    }
+
+    pub fn from_file(&path: String) -> Tokenizer {
+        let tokenizer = tokenizers::Tokenizer::from_file(path);
+
+        if let Ok(tokenizer) = tokenizer {
+            Tokenizer {
+                normalizer: tokenizer.get_normalizer().map_or_else(|| NormalizerWrapper::new(NFKC::default()), |nw| nw.clone()),
+                pre_tokenizer: tokenizer.get_pre_tokenizer().map_or_else(|| PreTokenizerWrapper::Whitespace(Whitespace::default()), |ptw| ptw.clone()),
+            }
+        } else {
+            Tokenizer::default()
         }
     }
 

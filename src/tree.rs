@@ -400,22 +400,23 @@ impl HashMapSearchTree {
     }
 
     pub fn insert(&mut self, mut values: VecDeque<String>, match_string: String, match_uri: String, match_type: MatchType) {
-        let value = values.pop_front().unwrap().to_lowercase();
-        match self.children.get_mut(&value.to_lowercase()) {
-            Some(mut child) => {
-                if values.is_empty() {
-                    child.matches.insert(Match { match_type, match_string, match_uri });
-                } else {
-                    child.insert(values, match_string, match_uri, match_type);
+        if let Some(value) = values.pop_front() {
+            match self.children.get_mut(&value.to_lowercase()) {
+                Some(mut child) => {
+                    if values.is_empty() {
+                        child.matches.insert(Match { match_type, match_string, match_uri });
+                    } else {
+                        child.insert(values, match_string, match_uri, match_type);
+                    }
                 }
-            }
-            None => {
-                if values.is_empty() {
-                    self.children.insert(value, HashMapSearchTree::from(match_string, match_uri));
-                } else {
-                    match self.children.try_insert(value, HashMapSearchTree::child()) {
-                        Ok(child) => { child.insert(values, match_string, match_uri, match_type); }
-                        Err(err) => { panic!("{:?}", err) }
+                None => {
+                    if values.is_empty() {
+                        self.children.insert(value, HashMapSearchTree::from(match_string, match_uri));
+                    } else {
+                        match self.children.try_insert(value, HashMapSearchTree::child()) {
+                            Ok(child) => { child.insert(values, match_string, match_uri, match_type); }
+                            Err(err) => { panic!("{:?}", err) }
+                        }
                     }
                 }
             }

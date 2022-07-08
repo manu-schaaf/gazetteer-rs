@@ -135,7 +135,7 @@ impl Tokenizer {
         let vocab: HashMap<String, u32> = HashMap::from([("[UNK]".to_string(), 0)]);
         let model: WordLevel = WordLevel::builder().vocab(vocab).unk_token("[UNK]".to_string()).build().expect("Failed to build model!");
         let normalizer_wrapper = NormalizerWrapper::Sequence(NSequence::new(vec![
-            NormalizerWrapper::Lowercase(Lowercase),
+            // NormalizerWrapper::Lowercase(Lowercase),
             NormalizerWrapper::NFKC(NFKC::default()),
         ]));
         let pre_tokenizer_wrapper = PreTokenizerWrapper::Sequence(PTSequence::new(vec![

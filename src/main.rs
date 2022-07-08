@@ -24,7 +24,7 @@ use rocket_dyn_templates::{context, Template};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection};
+use gazetteer::tree::{HashMapSearchTree, DisplayMatch, ResultSelection};
 use gazetteer::util::{read_lines, Tokenizer};
 
 #[cfg(test)]
@@ -58,7 +58,6 @@ async fn v1_process(
     );
     let results: Vec<Value> = results.into_iter()
         .map(|(string, mtches, begin, end)| {
-            let mtches = mtches.into_iter().sorted().collect::<Vec<Match>>();
             let match_uris = mtches.iter()
                 .map(|mtch| &mtch.match_uri)
                 .join(" | ");
@@ -166,13 +165,9 @@ fn index() -> Template {
 fn submit<'r>(mut form: Form<Contextual<'r, Submit<'r>>>, tree: &State<HashMapSearchTree>) -> (Status, Template) {
     let template = match form.value {
         Some(ref submission) => {
-            // println!("submission: {:#?}", submission);
             match file_or_text(submission.text, &submission.file) {
                 Ok(text) => {
                     let results = tree.search(&text, Option::from(submission.max_len), Option::from(&submission.result_selection));
-                    // for result in results.iter() {
-                    //     println!("{:?} ({},{}) -> {:?}", result.0, result.2, result.2, result.1)
-                    // }
                     Template::render("success", context! {
                         text: text,
                         results: results,
@@ -203,12 +198,6 @@ async fn search(
         request.max_len.or_else(|| Some(DEFAULT_MAX_LEN)),
         Option::from(&request.result_selection),
     );
-    let results: Vec<(String, Vec<Match>, usize, usize)> = results.into_iter()
-        .map(|(string, mtches, begin, end)| {
-            let mut mtches = mtches.into_iter().collect::<Vec<Match>>();
-            mtches.sort();
-            (string, mtches, begin, end)
-        }).collect::<Vec<(String, Vec<Match>, usize, usize)>>();
     json!({
         "status": "ok",
         "results": results

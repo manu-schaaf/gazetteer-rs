@@ -141,13 +141,6 @@ pub trait SearchTree: Sync + Send {
             .map(|(segments, (taxon, uri, match_type))| (segments.0, taxon.clone(), uri.clone(), match_type.clone()))
             .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
 
-        let pb = ProgressBar::new(entries.len() as u64);
-        pb.set_style(ProgressStyle::with_template(
-            "Loading Entries {bar:40} {pos}/{len} {msg}"
-        ).unwrap());
-        self.load_entries(entries.clone(), Some(&pb));
-        pb.finish_with_message("Done");
-
         if generate_ngrams {
             let ngrams = Self::generate_ngrams(&entries);
 
@@ -169,6 +162,13 @@ pub trait SearchTree: Sync + Send {
             self.load_entries(abbreviations, Some(&pb));
             pb.finish_with_message("Done");
         }
+
+        let pb = ProgressBar::new(entries.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Loading Entries {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+        self.load_entries(entries, Some(&pb));
+        pb.finish_with_message("Done");
     }
 
     fn generate_ngrams(lines: &Vec<(Vec<String>, String, String, MatchType)>) -> Vec<(Vec<String>, String, String, MatchType)> {

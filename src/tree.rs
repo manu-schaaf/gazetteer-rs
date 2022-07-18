@@ -66,12 +66,12 @@ impl Display for MatchType {
 pub struct Match {
     pub match_type: MatchType,
     pub match_string: String,
-    pub match_uri: String,
+    pub match_label: String,
 }
 
 impl Hash for Match {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.match_uri.hash(state);
+        self.match_label.hash(state);
     }
 }
 
@@ -79,7 +79,7 @@ impl Ord for Match {
     fn cmp(&self, other: &Self) -> Ordering {
         self.match_type.cmp(&other.match_type)
             .then(self.match_string.cmp(&other.match_string))
-            .then(self.match_uri.cmp(&other.match_uri))
+            .then(self.match_label.cmp(&other.match_label))
     }
 }
 
@@ -91,7 +91,7 @@ impl PartialOrd<Self> for Match {
 
 impl Display for Match {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write! {f, "{} Match: {} -> {}", self.match_type, self.match_string, self.match_uri}
+        write! {f, "{} Match: {} -> {}", self.match_type, self.match_string, self.match_label}
     }
 }
 
@@ -100,18 +100,18 @@ impl Match {
         Self {
             match_type: MatchType::None,
             match_string: String::new(),
-            match_uri: String::new(),
+            match_label: String::new(),
         }
     }
 
     fn full(
         match_string: String,
-        match_uri: String,
+        match_label: String,
     ) -> Self {
         Match {
             match_type: MatchType::Full,
             match_string,
-            match_uri,
+            match_label,
         }
     }
 }
@@ -133,9 +133,9 @@ impl HashMapSearchTree {
         }
     }
 
-    fn from(match_string: String, match_uri: String) -> Self {
+    fn from(match_string: String, match_label: String) -> Self {
         Self {
-            matches: HashSet::from([Match::full(match_string, match_uri)]),
+            matches: HashSet::from([Match::full(match_string, match_label)]),
             children: HashMap::new(),
             tokenizer: None,
         }
@@ -158,10 +158,10 @@ impl HashMapSearchTree {
         ).unwrap());
         let lines = parse_files(files, Option::from(&pb), filter_list);
 
-        let taxa: Vec<&str> = lines.iter().map(|line| line.0.as_str()).collect();
-        let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> = self.tokenize_batch(taxa.as_slice()).unwrap();
+        let search_terms: Vec<&str> = lines.iter().map(|line| line.0.as_str()).collect();
+        let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> = self.tokenize_batch(search_terms.as_slice()).unwrap();
         let entries = segmented.into_iter().zip(lines.into_iter())
-            .map(|(segments, (taxon, uri, match_type))| (segments.0, taxon.clone(), uri.clone(), match_type.clone()))
+            .map(|(segments, (search_term, label, match_type))| (segments.0, search_term.clone(), label.clone(), match_type.clone()))
             .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
 
         if generate_ngrams {
@@ -195,8 +195,8 @@ impl HashMapSearchTree {
     }
 
     fn load_entries(&mut self, entries: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>) {
-        for (segments, taxon, uri, match_type) in entries {
-            self.insert(VecDeque::from(segments), taxon, uri, match_type);
+        for (segments, search_term, label, match_type) in entries {
+            self.insert(VecDeque::from(segments), search_term, label, match_type);
 
             if let Some(pb) = pb {
                 pb.inc(1)
@@ -204,23 +204,23 @@ impl HashMapSearchTree {
         }
     }
 
-    pub fn insert(&mut self, mut values: VecDeque<String>, match_string: String, match_uri: String, match_type: MatchType) {
+    pub fn insert(&mut self, mut values: VecDeque<String>, match_string: String, match_label: String, match_type: MatchType) {
         if let Some(value) = values.pop_front() {
             let value = value.to_lowercase();
             match self.children.get_mut(&value) {
                 Some(mut child) => {
                     if values.is_empty() {
-                        child.matches.insert(Match { match_type, match_string, match_uri });
+                        child.matches.insert(Match { match_type, match_string, match_label });
                     } else {
-                        child.insert(values, match_string, match_uri, match_type);
+                        child.insert(values, match_string, match_label, match_type);
                     }
                 }
                 None => {
                     if values.is_empty() {
-                        self.children.insert(value, HashMapSearchTree::from(match_string, match_uri));
+                        self.children.insert(value, HashMapSearchTree::from(match_string, match_label));
                     } else {
                         match self.children.try_insert(value, HashMapSearchTree::child()) {
-                            Ok(child) => { child.insert(values, match_string, match_uri, match_type); }
+                            Ok(child) => { child.insert(values, match_string, match_label, match_type); }
                             Err(err) => { panic!("{:?}", err) }
                         }
                         // let mut child = self.children.insert(value, HashMapSearchTree::default()).expect("!");
@@ -242,7 +242,7 @@ impl HashMapSearchTree {
         ).unwrap());
 
         let ngrams = filtered.par_iter()
-            .map(|(segments, taxon_name, uri, _)| {
+            .map(|(segments, search_term, label, _)| {
                 let mut result = Vec::new();
                 let ngrams = segments.clone().into_iter()
                     .ngrams(2)
@@ -251,7 +251,7 @@ impl HashMapSearchTree {
                 for ngram in ngrams {
                     // Check whether any part is an abbreviation
                     if ngram.iter().all(|el| el.len() > 2) {
-                        result.push((ngram, String::from(taxon_name), String::from(uri), MatchType::NGram));
+                        result.push((ngram, String::from(search_term), String::from(label), MatchType::NGram));
                     }
                 }
                 pb.inc(1);
@@ -275,14 +275,14 @@ impl HashMapSearchTree {
         ).unwrap());
 
         let abbrevations = filtered.par_iter()
-            .map(|(segments, taxon_name, uri, _)| {
+            .map(|(segments, search_term, label, _)| {
                 let mut result = Vec::new();
 
                 let head = String::from(&segments[0]);
                 let first_char = head.chars().next().unwrap().to_string();
                 let mut abbrv = vec![first_char];
                 abbrv.extend_from_slice(&segments[1..]);
-                result.push((abbrv, String::from(taxon_name), String::from(uri), MatchType::Abbreviated));
+                result.push((abbrv, String::from(search_term), String::from(label), MatchType::Abbreviated));
 
                 pb.inc(1);
                 result

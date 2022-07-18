@@ -116,27 +116,27 @@ fn test_match_sort() {
         Match {
             match_type: MatchType::Abbreviated,
             match_string: "1_FULL".to_string(),
-            match_uri: "1_URI".to_string(),
+            match_label: "1_URI".to_string(),
         },
         Match {
             match_type: MatchType::Abbreviated,
             match_string: "1_ABBRV".to_string(),
-            match_uri: "2_URI".to_string(),
+            match_label: "2_URI".to_string(),
         },
         Match {
             match_type: MatchType::NGram,
             match_string: "1_NGRAM".to_string(),
-            match_uri: "3_URI".to_string(),
+            match_label: "3_URI".to_string(),
         },
         Match {
             match_type: MatchType::Full,
             match_string: "1_FULL".to_string(),
-            match_uri: "1_URI".to_string(),
+            match_label: "1_URI".to_string(),
         },
         Match {
             match_type: MatchType::None,
             match_string: "_".to_string(),
-            match_uri: "_".to_string(),
+            match_label: "_".to_string(),
         },
     ];
     mtches.sort();

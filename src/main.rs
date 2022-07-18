@@ -58,8 +58,8 @@ async fn v1_process(
     );
     let results: Vec<Value> = results.into_iter()
         .map(|(string, mtches, begin, end)| {
-            let match_uris = mtches.iter()
-                .map(|mtch| &mtch.match_uri)
+            let match_labels = mtches.iter()
+                .map(|mtch| &mtch.match_label)
                 .join(" | ");
             let match_types = mtches.iter()
                 .map(|mtch| mtch.match_type.to_string())
@@ -69,7 +69,7 @@ async fn v1_process(
                 .join(" | ");
             json!({
                 "string": string,
-                "match_uris": match_uris,
+                "match_uris": match_labels,
                 "match_types": match_types,
                 "match_strings": match_strings,
                 "begin": begin,

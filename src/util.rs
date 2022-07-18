@@ -156,7 +156,7 @@ impl Tokenizer {
 
     pub fn encode_batch(
         &self,
-        inputs: &[String],
+        inputs: &[&str],
     ) -> Vec<(Vec<String>, Vec<(usize, usize)>)> {
         let pb = ProgressBar::new(inputs.len() as u64);
         pb.set_style(ProgressStyle::with_template(

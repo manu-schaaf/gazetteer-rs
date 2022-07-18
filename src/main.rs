@@ -58,7 +58,6 @@ async fn v1_process(
     );
     let results: Vec<Value> = results.into_iter()
         .map(|(string, mtches, begin, end)| {
-            let mtches = mtches.into_iter().sorted().collect::<Vec<Match>>();
             let match_uris = mtches.iter()
                 .map(|mtch| &mtch.match_uri)
                 .join(" | ");
@@ -202,12 +201,6 @@ async fn search(
         request.max_len.or_else(|| Some(DEFAULT_MAX_LEN)),
         Option::from(&request.result_selection),
     );
-    let results: Vec<(String, Vec<Match>, usize, usize)> = results.into_iter()
-        .map(|(string, mtches, begin, end)| {
-            let mut mtches = mtches.into_iter().collect::<Vec<Match>>();
-            mtches.sort();
-            (string, mtches, begin, end)
-        }).collect::<Vec<(String, Vec<Match>, usize, usize)>>();
     json!({
         "status": "ok",
         "results": results

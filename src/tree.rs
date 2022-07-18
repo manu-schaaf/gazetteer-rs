@@ -158,18 +158,11 @@ impl HashMapSearchTree {
         ).unwrap());
         let lines = parse_files(files, Option::from(&pb), filter_list);
 
-        let (taxa, _, _): (Vec<String>, Vec<String>, Vec<MatchType>) = lines.clone().into_iter().multiunzip();
+        let taxa: Vec<&str> = lines.iter().map(|line| line.0.as_str()).collect();
         let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> = self.tokenize_batch(taxa.as_slice()).unwrap();
         let entries = segmented.into_iter().zip(lines.into_iter())
             .map(|(segments, (taxon, uri, match_type))| (segments.0, taxon.clone(), uri.clone(), match_type.clone()))
             .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
-
-        let pb = ProgressBar::new(entries.len() as u64);
-        pb.set_style(ProgressStyle::with_template(
-            "Loading Entries {bar:40} {pos}/{len} {msg}"
-        ).unwrap());
-        self.load_entries(entries.clone(), Some(&pb));
-        pb.finish_with_message("Done");
 
         if generate_ngrams {
             let ngrams = Self::generate_ngrams(&entries);
@@ -192,6 +185,13 @@ impl HashMapSearchTree {
             self.load_entries(abbreviations, Some(&pb));
             pb.finish_with_message("Done");
         }
+
+        let pb = ProgressBar::new(entries.len() as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "Loading Entries {bar:40} {pos}/{len} {msg}"
+        ).unwrap());
+        self.load_entries(entries, Some(&pb));
+        pb.finish_with_message("Done");
     }
 
     fn load_entries(&mut self, entries: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>) {
@@ -223,6 +223,8 @@ impl HashMapSearchTree {
                             Ok(child) => { child.insert(values, match_string, match_uri, match_type); }
                             Err(err) => { panic!("{:?}", err) }
                         }
+                        // let mut child = self.children.insert(value, HashMapSearchTree::default()).expect("!");
+                        // child.insert(values, match_string, match_uri, match_type);
                     }
                 }
             }
@@ -303,7 +305,7 @@ impl HashMapSearchTree {
         }
     }
 
-    fn tokenize_batch(&self, input: &[String]) -> Result<Vec<(Vec<String>, Vec<(usize, usize)>)>, String> {
+    fn tokenize_batch(&self, input: &[&str]) -> Result<Vec<(Vec<String>, Vec<(usize, usize)>)>, String> {
         match &self.tokenizer {
             Some(tokenizer) => {
                 Ok(tokenizer.encode_batch(input))
@@ -323,7 +325,7 @@ impl HashMapSearchTree {
         }
     }
 
-    pub fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, HashSet<Match>, usize, usize)> {
+    pub fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, Vec<Match>, usize, usize)> {
         let result_selection = result_selection.unwrap_or(&ResultSelection::Longest);
         let max_len = max_len.unwrap_or(5 as usize);
 
@@ -369,7 +371,8 @@ impl HashMapSearchTree {
                 }
             })
             .flatten()
-            .collect::<Vec<(String, HashSet<Match>, usize, usize)>>();
+            .map(|(s, mtches, a, b)| (s, mtches.into_iter().sorted().collect::<Vec<Match>>(), a, b))
+            .collect::<Vec<(String, Vec<Match>, usize, usize)>>();
 
         // results.dedup_by(|b, a| b.2 <= a.3);
         // TODO: This removes fully covered entities that end on the same character as their covering entities but not partial overlaps

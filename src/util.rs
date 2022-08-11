@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, Read};
@@ -18,7 +19,12 @@ use tokenizers::pre_tokenizers::whitespace::Whitespace;
 use crate::tree::MatchType;
 
 pub fn read_lines(filename: &str) -> Vec<String> {
-    let extension = Path::new(filename.clone()).extension().unwrap().to_str().unwrap();
+    let extension = match Path::new(filename.clone()).extension() {
+        None => { "" }
+        Some(ext) => {
+            ext.to_str().unwrap()
+        }
+    };
     let file = File::open(Path::new(filename)).expect("Could not open file");
     let reader = io::BufReader::new(file);
     match extension {

@@ -368,12 +368,7 @@ impl HashMapSearchTree {
                         vec![(result.0.join(" "), result.1.clone(), start, end)]
                     }
                     ResultSelection::Longest => {
-                        let mut result = (Vec::new(), &HashSet::new());
-                        for t in results {
-                            if t.0.len() > result.0.len() {
-                                result = t;
-                            }
-                        }
+                        let result = results.into_iter().sorted_by_key(|(a, _)| a.len()).last().expect("Failed to get sorted result");
                         let end = offsets[result.0.len() - 1].1;
                         vec![(result.0.join(" "), result.1.clone(), start, end)]
                     }

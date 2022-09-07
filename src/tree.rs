@@ -104,6 +104,18 @@ impl Match {
         }
     }
 
+    fn new(
+        match_type: MatchType,
+        match_string: String,
+        match_label: String,
+    ) -> Self {
+        Match {
+            match_type,
+            match_string,
+            match_label,
+        }
+    }
+
     fn full(
         match_string: String,
         match_label: String,
@@ -133,9 +145,9 @@ impl HashMapSearchTree {
         }
     }
 
-    fn from(match_string: String, match_label: String) -> Self {
+    fn from(match_type: MatchType, match_string: String, match_label: String) -> Self {
         Self {
-            matches: HashSet::from([Match::full(match_string, match_label)]),
+            matches: HashSet::from([Match::new(match_type, match_string, match_label)]),
             children: HashMap::new(),
             tokenizer: None,
         }
@@ -217,7 +229,7 @@ impl HashMapSearchTree {
                 }
                 None => {
                     if values.is_empty() {
-                        self.children.insert(value, HashMapSearchTree::from(match_string, match_label));
+                        self.children.insert(value, HashMapSearchTree::from(match_type, match_string, match_label));
                     } else {
                         match self.children.try_insert(value, HashMapSearchTree::child()) {
                             Ok(child) => { child.insert(values, match_string, match_label, match_type); }

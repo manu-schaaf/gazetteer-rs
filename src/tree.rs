@@ -173,7 +173,7 @@ impl HashMapSearchTree {
         let search_terms: Vec<&str> = lines.iter().map(|line| line.0.as_str()).collect();
         let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> = self.tokenize_batch(search_terms.as_slice()).unwrap();
         let entries = segmented.into_iter().zip(lines.into_iter())
-            .map(|(segments, (search_term, label, match_type))| (segments.0, search_term.clone(), label.clone(), match_type.clone()))
+            .map(|(segments, (search_term, label, match_type))| (segments.0, search_term, label, match_type))
             .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
 
         if generate_ngrams {

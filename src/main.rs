@@ -69,7 +69,7 @@ async fn v1_process(
                 .join(" | ");
             json!({
                 "string": string,
-                "match_uris": match_labels,
+                "match_labels": match_labels,
                 "match_types": match_types,
                 "match_strings": match_strings,
                 "begin": begin,

@@ -7,7 +7,23 @@ Rust implemenatation of a skip-gram gazetteer tagger
 
 ## Description
 
-Given an input tab-separated list of query-label-pairs, 
+This project can be used to find large numbers of search terms in documents in linear time with respect to the document length.
+
+### Process
+
+Generally, the process is as follows.
+1. Given an input tab-separated list of search-term-label-pairs, will construct a search tree of words.
+2. Then, for each document, iterate over the words in the document and traverse the tree if a matching word is found.
+
+## Details
+
+To create the tree, the input lists are segmented using a pre-tokenizer from the [`tokenizers`](https://docs.rs/tokenizers/) library.
+
+The tree is backed by Rusts standard library [`HashMap`](https://doc.rust-lang.org/std/collections/struct.HashMap.html).
+
+The RESTful interface is implemented using [`rocket`](https://docs.rs/rocket/).
+
+There are configuration options to enable the abbrevation of search terms or the creation of n-grams from search term segments, see [`config.toml`](/config.toml).
 
 ### TextImager 2.0 Interface
 

@@ -218,7 +218,7 @@ impl HashMapSearchTree {
 
     pub fn insert(&mut self, mut values: VecDeque<String>, match_string: String, match_label: String, match_type: MatchType) {
         if let Some(value) = values.pop_front() {
-            let value = value.to_lowercase();
+            let value = value;
             match self.children.get_mut(&value) {
                 Some(mut child) => {
                     if values.is_empty() {
@@ -392,7 +392,7 @@ impl HashMapSearchTree {
         mut results: Vec<(Vec<String>, &'a HashSet<Match>)>,
     ) -> Vec<(Vec<String>, &'a HashSet<Match>)> {
         let value = values.pop_front().expect("");
-        match self.children.get(&value.to_lowercase()) {
+        match self.children.get(&value) {
             Some(child) => {
                 matched_string_buffer.push(value.to_string());
                 if !child.matches.is_empty() {

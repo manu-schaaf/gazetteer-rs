@@ -10,7 +10,7 @@ use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use tokenizers::{Normalizer, NormalizerWrapper, OffsetReferential, OffsetType, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior};
-use tokenizers::normalizers::NFKC;
+use tokenizers::normalizers::{Lowercase, NFKC};
 use tokenizers::normalizers::Sequence as NormalizerSequence;
 use tokenizers::pre_tokenizers::punctuation::Punctuation;
 use tokenizers::pre_tokenizers::sequence::Sequence as PreTokenizerSequence;
@@ -138,6 +138,7 @@ impl Tokenizer {
     pub fn default() -> Tokenizer {
         Tokenizer {
             normalizer: NormalizerWrapper::Sequence(NormalizerSequence::new(vec![
+                NormalizerWrapper::Lowercase(Lowercase),
                 NormalizerWrapper::NFKC(NFKC::default()),
             ])),
             pre_tokenizer: PreTokenizerWrapper::Sequence(PreTokenizerSequence::new(vec![

@@ -268,7 +268,6 @@ impl HashMapSearchTree {
                 pb.inc(1);
                 result
             })
-            .flatten()
             .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
 
         pb.finish_with_message(format!("Generated {} n-grams", ngrams.len()));
@@ -286,7 +285,7 @@ impl HashMapSearchTree {
         ).unwrap());
 
         let abbrevations = filtered.par_iter()
-            .map(|(segments, search_term, label, _)| {
+            .flat_map_iter(|(segments, search_term, label, _)| {
                 let mut result = Vec::new();
 
                 let head = String::from(&segments[0]);
@@ -298,7 +297,6 @@ impl HashMapSearchTree {
                 pb.inc(1);
                 result
             })
-            .flatten()
             .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
 
         pb.finish_with_message("Done");

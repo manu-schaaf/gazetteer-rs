@@ -254,11 +254,10 @@ impl HashMapSearchTree {
         ).unwrap());
 
         let ngrams = filtered.par_iter()
-            .map(|(segments, search_term, label, _)| {
+            .flat_map_iter(|(segments, search_term, label, _)| {
                 let mut result = Vec::new();
                 let ngrams = segments.clone().into_iter()
                     .ngrams(2)
-                    .pad()
                     .collect::<Vec<Vec<String>>>();
                 for ngram in ngrams {
                     // Check whether any part is an abbreviation

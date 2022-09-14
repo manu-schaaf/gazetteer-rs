@@ -2,22 +2,18 @@ name: Rust
 
 on:
   push:
-    branches:
-      - master
     tags:
-      - v*
+      - "v*.*.*"
   pull_request:
-    branches:
-      - master
     tags: 
-      - v*
-    
+      - "v*.*.*"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-bin:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -31,12 +27,11 @@ jobs:
           default: true
           override: true
 
-      - name: Build
+      - name: Build binary without GUI
         run: cargo build --release
 
-      - name: Release
+      - name: Release (w/o GUI)
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           name: gazetteer-rs.${{ github.ref_name }}-bin.zip 
           files: |
@@ -46,27 +41,12 @@ jobs:
             Rocket.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
-  build-gui:
-    runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          default: true
-          override: true
-
-      - name: Build
+      - name: Build binary with GUI
         run: cargo build --features=gui --release
 
-      - name: Release
+      - name: Release (w/GUI)
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           name: gazetteer-rs.${{ github.ref_name }}-gui.zip 
           files: |
@@ -78,3 +58,6 @@ jobs:
             Rocket.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update latest tag
+        uses: EndBug/latest-tag@v1.5.0

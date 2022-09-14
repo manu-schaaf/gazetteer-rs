@@ -1,8 +1,8 @@
 [default]
 limits.bytes = "512MiB"
-limits.data-form = "16MiB"
-limits.file = "16MiB"
-limits.form = "2MiB"
+limits.data-form = "512MiB"
+limits.file = "512MiB"
+limits.form = "16MiB"
 limits.json = "512MiB"
 limits.msgpack = "512MiB"
 limits.string = "512MiB"

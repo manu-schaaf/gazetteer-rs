@@ -3,6 +3,7 @@
 Rust implemenatation of a skip-gram gazetteer tagger
 
 [![version](https://img.shields.io/github/license/texttechnologylab/gazetteer-rs)]()
+[![build](https://github.com/texttechnologylab/gazetteer-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/texttechnologylab/gazetteer-rs/actions)
 [![latest](https://img.shields.io/github/v/release/texttechnologylab/gazetteer-rs)]()
 
 ## Description

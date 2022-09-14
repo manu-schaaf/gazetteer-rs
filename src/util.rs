@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, Read};
@@ -8,23 +9,29 @@ use flate2::bufread::GzDecoder;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use tokenizers::{Normalizer, OffsetReferential, OffsetType, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior};
-use tokenizers::normalizers::NFKC;
+use tokenizers::{Normalizer, NormalizerWrapper, OffsetReferential, OffsetType, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior};
+use tokenizers::normalizers::{Lowercase, NFKC};
+use tokenizers::normalizers::Sequence as NormalizerSequence;
 use tokenizers::pre_tokenizers::punctuation::Punctuation;
-use tokenizers::pre_tokenizers::sequence::Sequence;
+use tokenizers::pre_tokenizers::sequence::Sequence as PreTokenizerSequence;
 use tokenizers::pre_tokenizers::whitespace::Whitespace;
 
 use crate::tree::MatchType;
 
 pub fn read_lines(filename: &str) -> Vec<String> {
-    let extension = Path::new(filename.clone()).extension().unwrap().to_str().unwrap();
+    let extension = match Path::new(filename.clone()).extension() {
+        None => { "" }
+        Some(ext) => {
+            ext.to_str().unwrap()
+        }
+    };
     let file = File::open(Path::new(filename)).expect("Could not open file");
     let reader = io::BufReader::new(file);
     match extension {
         "gz" => {
             let mut s = String::new();
             GzDecoder::new(reader).read_to_string(&mut s);
-            s.lines().map(|s|String::from(s)).collect::<Vec<String>>()
+            s.lines().map(|s| String::from(s)).collect::<Vec<String>>()
         }
         _ => {
             reader.lines().filter_map(|line| line.ok()).collect::<Vec<String>>()
@@ -107,30 +114,37 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
         .filter(|line| line.len() > 0)
         .map(|line| {
             let split = line.split('\t').collect::<Vec<&str>>();
-            let taxon = String::from(split[0]);
-            let uri = String::from(split[1]);
-            (taxon, uri, MatchType::Full)
+            let search_term = String::from(split[0]);
+            let label = if split.len() > 1 {
+                String::from(split[1])
+            } else {
+                String::with_capacity(0)
+            };
+            (search_term, label, MatchType::Full)
         })
-        .filter(|(taxon, _, _)| {
-            filter_list.len() == 0 || !filter_list.contains(&taxon.to_lowercase())
+        .filter(|(search_term, _, _)| {
+            filter_list.len() == 0 || !filter_list.contains(&search_term.to_lowercase())
         })
         .collect::<Vec<(String, String, MatchType)>>()
 }
 
 #[derive(Debug)]
 pub struct Tokenizer {
-    normalizer: NFKC,
-    pre_tokenizer: Sequence,
+    normalizer: NormalizerWrapper,
+    pre_tokenizer: PreTokenizerWrapper,
 }
 
 impl Tokenizer {
     pub fn default() -> Tokenizer {
         Tokenizer {
-            normalizer: NFKC::default(),
-            pre_tokenizer: Sequence::new(vec![
+            normalizer: NormalizerWrapper::Sequence(NormalizerSequence::new(vec![
+                NormalizerWrapper::Lowercase(Lowercase),
+                NormalizerWrapper::NFKC(NFKC::default()),
+            ])),
+            pre_tokenizer: PreTokenizerWrapper::Sequence(PreTokenizerSequence::new(vec![
                 PreTokenizerWrapper::Punctuation(Punctuation::new(SplitDelimiterBehavior::Removed)),
                 PreTokenizerWrapper::Whitespace(Whitespace::default()),
-            ]),
+            ])),
         }
     }
 
@@ -149,7 +163,7 @@ impl Tokenizer {
 
     pub fn encode_batch(
         &self,
-        inputs: &[String],
+        inputs: &[&str],
     ) -> Vec<(Vec<String>, Vec<(usize, usize)>)> {
         let pb = ProgressBar::new(inputs.len() as u64);
         pb.set_style(ProgressStyle::with_template(

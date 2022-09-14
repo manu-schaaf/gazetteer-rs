@@ -13,7 +13,7 @@ use rocket::form;
 #[cfg(feature = "gui")]
 use rocket::form::{Context, Contextual, Error, Form, FromForm};
 #[cfg(feature = "gui")]
-use rocket::fs::{FileServer, relative, TempFile};
+use rocket::fs::{FileServer, TempFile};
 use rocket::fs::NamedFile;
 #[cfg(feature = "gui")]
 use rocket::http::Status;
@@ -24,7 +24,7 @@ use rocket_dyn_templates::{context, Template};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection, SearchTree};
+use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection};
 use gazetteer::util::read_lines;
 
 #[cfg(test)]
@@ -58,9 +58,8 @@ async fn v1_process(
     );
     let results: Vec<Value> = results.into_iter()
         .map(|(string, mtches, begin, end)| {
-            let mtches = mtches.into_iter().sorted().collect::<Vec<Match>>();
-            let match_uris = mtches.iter()
-                .map(|mtch| &mtch.match_uri)
+            let match_labels = mtches.iter()
+                .map(|mtch| &mtch.match_label)
                 .join(" | ");
             let match_types = mtches.iter()
                 .map(|mtch| mtch.match_type.to_string())
@@ -70,7 +69,7 @@ async fn v1_process(
                 .join(" | ");
             json!({
                 "string": string,
-                "match_uris": match_uris,
+                "match_labels": match_labels,
                 "match_types": match_types,
                 "match_strings": match_strings,
                 "begin": begin,
@@ -202,12 +201,6 @@ async fn search(
         request.max_len.or_else(|| Some(DEFAULT_MAX_LEN)),
         Option::from(&request.result_selection),
     );
-    let results: Vec<(String, Vec<Match>, usize, usize)> = results.into_iter()
-        .map(|(string, mtches, begin, end)| {
-            let mut mtches = mtches.into_iter().collect::<Vec<Match>>();
-            mtches.sort();
-            (string, mtches, begin, end)
-        }).collect::<Vec<(String, Vec<Match>, usize, usize)>>();
     json!({
         "status": "ok",
         "results": results
@@ -259,6 +252,6 @@ fn rocket() -> _ {
         .mount("/", routes![index, submit, search, v1_process, v1_communication_layer])
         .register("/search", catchers![search_error])
         .attach(Template::fairing())
-        .mount("/", FileServer::from(relative!("/static")))
+        .mount("/", FileServer::from("static"))
         .manage(tree)
 }

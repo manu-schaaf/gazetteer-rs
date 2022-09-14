@@ -29,14 +29,14 @@
                         </summary>
                         <ul>
                             {% for match in matches -%}
-                                <li><a href="{{ match.match_uri }}">{{ match.match_type }} Match: {{ match.match_string }} ({{ match.match_uri }})</a></li>
+                                <li><a href="{{ match.match_label }}">{{ match.match_type }} Match: {{ match.match_string }} ({{ match.match_label }})</a></li>
                             {%- endfor %}
                         </ul>
                     </details>
                 {% else %}
                     <ul>
                         {% for match in matches -%}
-                            <li><a href="{{ match.match_uri }}">{{ match.match_type }} Match: {{ match.match_string }} ({{ match.match_uri }})</a></li>
+                            <li><a href="{{ match.match_label }}">{{ match.match_type }} Match: {{ match.match_string }} ({{ match.match_label }})</a></li>
                         {%- endfor %}
                     </ul>
                 {% endif %}

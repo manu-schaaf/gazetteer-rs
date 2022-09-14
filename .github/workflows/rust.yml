@@ -27,35 +27,26 @@ jobs:
           default: true
           override: true
 
-      - name: Build binary without GUI
-        run: cargo build --release
-
-      - name: Release (w/o GUI)
-        uses: softprops/action-gh-release@v1
-        with:
-          name: gazetteer-rs.${{ github.ref_name }}-bin.zip 
-          files: |
-            target/release/gazetteer
-            resources/
-            config.toml
-            Rocket.toml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build binary with GUI
         run: cargo build --features=gui --release
-
-      - name: Release (w/GUI)
+          
+      - name: Archive (w/GUI)
+        run: cp target/release/gazetteer . && zip -r gazetteer-rs.${{ github.ref_name }}-gui.zip resources/ config.toml gazetteer Rocket.toml LICENSE && mv gazetteer gazetteer-gui
+        
+      - name: Build binary without GUI
+        run: cargo build --release
+        
+      - name: Archive (w/o GUI)
+        run: cp target/release/gazetteer . && zip -r gazetteer-rs.${{ github.ref_name }}-bin.zip resources/ config.toml gazetteer Rocket.toml LICENSE
+      
+      - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          name: gazetteer-rs.${{ github.ref_name }}-gui.zip 
           files: |
-            target/release/gazetteer
-            resources/
-            static/
-            templates/
-            config.toml
-            Rocket.toml
+            gazetteer-rs.${{ github.ref_name }}-bin.zip
+            gazetteer-rs.${{ github.ref_name }}-gui.zip
+            gazetteer
+            gazetteer-gui
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

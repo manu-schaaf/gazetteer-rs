@@ -25,14 +25,14 @@ jobs:
           override: true
 
       - name: Build
-        run: cargo build --release && strip target/release/PROJECT_NAME && mv target/release/PROJECT_NAME target/release/PROJECT_NAME-bin
+        run: cargo build --release
 
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            target/release/PROJECT_NAME-bin
+            target/release/gazetteer
             resources/
             config.toml
             Rocket.toml
@@ -54,14 +54,14 @@ jobs:
           override: true
 
       - name: Build
-        run: cargo build --features=gui --release && strip target/release/PROJECT_NAME && mv target/release/PROJECT_NAME target/release/PROJECT_NAME-gui
+        run: cargo build --features=gui --release
 
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            target/release/PROJECT_NAME-gui
+            target/release/gazetteer
             resources/
             static/
             templates/

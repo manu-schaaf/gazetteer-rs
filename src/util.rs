@@ -102,14 +102,13 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
                 .collect::<HashSet<String>>(),
         );
     files.par_iter()
-        .map(|file| {
+        .flat_map_iter(|file| {
             let lines = read_lines(file);
             if let Some(pb) = pb {
                 pb.inc(1);
             }
             lines
         })
-        .flatten()
         .map(|line| line.trim().to_string())
         .filter(|line| line.len() > 0)
         .map(|line| {

@@ -250,8 +250,8 @@ impl HashMapSearchTree {
                     self.insert(VecDeque::from(ngram), String::from(search_term), String::from(label), MatchType::NGram);
                     counter += 1;
                 }
-                pb.inc(1);
             }
+            pb.inc(1);
         }
         pb.finish_with_message(format!("Generated {} n-grams", counter));
     }

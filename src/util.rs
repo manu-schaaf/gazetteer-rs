@@ -113,9 +113,9 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
         .filter(|line| line.len() > 0)
         .map(|line| {
             let split = line.split('\t').collect::<Vec<&str>>();
-            let search_term = String::from(split[0]);
+            let search_term = String::from(split[0].trim());
             let label = if split.len() > 1 {
-                String::from(split[1])
+                String::from(split[1].trim())
             } else {
                 String::with_capacity(0)
             };

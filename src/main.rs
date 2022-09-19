@@ -95,9 +95,7 @@ struct Corpus {
     generate_ngrams: Option<bool>,
 }
 
-#[cfg(not(feature = "gui"))]
-#[launch]
-fn rocket() -> _ {
+fn parse_args_and_build_tree() -> HashMapSearchTree {
     let args: Vec<String> = env::args().collect();
     let config: String = if args.len() > 1 {
         std::fs::read_to_string(&args[1]).unwrap()
@@ -123,9 +121,14 @@ fn rocket() -> _ {
             tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
         }
     }
-    let tree = tree;
-
     println!("Finished loading gazetteer.");
+    tree
+}
+
+#[cfg(not(feature = "gui"))]
+#[launch]
+fn rocket() -> _ {
+    let tree: HashMapSearchTree = parse_args_and_build_tree();
 
     rocket::build()
         .mount("/", routes![v1_process, v1_communication_layer])
@@ -219,34 +222,7 @@ fn search_error() -> Value {
 #[cfg(feature = "gui")]
 #[launch]
 fn rocket() -> _ {
-    let args: Vec<String> = env::args().collect();
-    let config: String = if args.len() > 1 {
-        std::fs::read_to_string(&args[1]).unwrap()
-    } else {
-        std::fs::read_to_string("config.toml").unwrap()
-    };
-
-    let config: Config = toml::from_str(&config).unwrap();
-
-    let mut tree = HashMapSearchTree::default();
-    let lines = config.filter_path.map_or_else(|| Vec::new(), |p| read_lines(&p));
-    let filter_list = if lines.len() == 0 { None } else { Option::from(&lines) };
-
-    for corpus in config.corpora.values() {
-        let path: &String = &corpus.path;
-        let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| DEFAULT_GENERATE_ABBRV));
-        let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| DEFAULT_GENERATE_NGRAMS));
-        if let Some(_filter_path) = &corpus.filter_path {
-            let _lines = read_lines(&_filter_path);
-            let _filter_list = Option::from(_lines);
-            tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
-        } else {
-            tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
-        }
-    }
-    let tree = tree;
-
-    println!("Finished loading gazetteer.");
+    let tree: HashMapSearchTree = parse_args_and_build_tree();
 
     rocket::build()
         .mount("/", routes![index, submit, search, v1_process, v1_communication_layer])

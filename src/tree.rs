@@ -168,52 +168,36 @@ impl HashMapSearchTree {
         pb.set_style(ProgressStyle::with_template(
             "Loading Input Files {bar:40} {pos}/{len} {msg}"
         ).unwrap());
-        let lines = parse_files(files, Option::from(&pb), filter_list);
+        let lines: Vec<(String, String)> = parse_files(files, Option::from(&pb), filter_list);
 
         let search_terms: Vec<&str> = lines.iter().map(|line| line.0.as_str()).collect();
         let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> = self.tokenize_batch(search_terms.as_slice()).unwrap();
-        let entries = segmented.into_iter().zip(lines.into_iter())
-            .map(|(segments, (search_term, label, match_type))| (segments.0, search_term, label, match_type))
-            .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
+        let entries: Vec<(Vec<String>, String, String)> = segmented.into_iter().zip(lines.into_iter())
+            .map(|(segments, (search_term, label))| (segments.0, search_term, label))
+            .collect::<Vec<(Vec<String>, String, String)>>();
+
+        self.load_entries(&entries);
 
         if generate_ngrams {
-            let ngrams = Self::generate_ngrams(&entries);
-
-            let pb = ProgressBar::new(ngrams.len() as u64);
-            pb.set_style(ProgressStyle::with_template(
-                "Loading n-Grams {bar:40} {pos}/{len} {msg}"
-            ).unwrap());
-            self.load_entries(ngrams, Some(&pb));
-            pb.finish_with_message("Done");
+            self.generate_ngrams(&entries);
         }
 
         if generate_abbrv {
-            let abbreviations = Self::generate_abbreviations(&entries);
-
-            let pb = ProgressBar::new(abbreviations.len() as u64);
-            pb.set_style(ProgressStyle::with_template(
-                "Loading Abbreviations {bar:40} {pos}/{len} {msg}"
-            ).unwrap());
-            self.load_entries(abbreviations, Some(&pb));
-            pb.finish_with_message("Done");
+            self.generate_abbreviations(&entries);
         }
+    }
 
+    fn load_entries(&mut self, entries: &Vec<(Vec<String>, String, String)>) {
         let pb = ProgressBar::new(entries.len() as u64);
         pb.set_style(ProgressStyle::with_template(
             "Loading Entries {bar:40} {pos}/{len} {msg}"
         ).unwrap());
-        self.load_entries(entries, Some(&pb));
-        pb.finish_with_message("Done");
-    }
 
-    fn load_entries(&mut self, entries: Vec<(Vec<String>, String, String, MatchType)>, pb: Option<&ProgressBar>) {
-        for (segments, search_term, label, match_type) in entries {
-            self.insert(VecDeque::from(segments), search_term, label, match_type);
-
-            if let Some(pb) = pb {
-                pb.inc(1)
-            }
+        for (segments, search_term, label) in entries {
+            self.insert(VecDeque::from(segments.clone()), String::from(search_term), String::from(label), MatchType::Full);
+            pb.inc(1)
         }
+        pb.finish_with_message("Done");
     }
 
     pub fn insert(&mut self, mut values: VecDeque<String>, match_string: String, match_label: String, match_type: MatchType) {
@@ -243,9 +227,9 @@ impl HashMapSearchTree {
         }
     }
 
-    fn generate_ngrams(lines: &Vec<(Vec<String>, String, String, MatchType)>) -> Vec<(Vec<String>, String, String, MatchType)> {
+    fn generate_ngrams(&mut self, lines: &Vec<(Vec<String>, String, String)>) {
         let filtered = lines.par_iter()
-            .filter(|(segments, _, _, _)| segments.len() > 2)
+            .filter(|(segments, _, _)| segments.len() > 2)
             .collect::<Vec<_>>();
 
         let pb = ProgressBar::new(filtered.len() as u64);
@@ -253,30 +237,26 @@ impl HashMapSearchTree {
             "Generating n-Grams {bar:40} {pos}/{len} {msg}"
         ).unwrap());
 
-        let ngrams = filtered.par_iter()
-            .flat_map_iter(|(segments, search_term, label, _)| {
-                let mut result = Vec::new();
-                let ngrams = segments.clone().into_iter()
-                    .ngrams(2)
-                    .collect::<Vec<Vec<String>>>();
-                for ngram in ngrams {
-                    // Check whether any part is an abbreviation
-                    if ngram.iter().all(|el| el.len() > 2) {
-                        result.push((ngram, String::from(search_term), String::from(label), MatchType::NGram));
-                    }
+        let mut counter: i64 = 0;
+        for (segments, search_term, label) in filtered {
+            let ngrams = segments.clone().into_iter()
+                .ngrams(2)
+                .collect::<Vec<Vec<String>>>();
+            for ngram in ngrams {
+                // Check whether any part is an abbreviation
+                if ngram.iter().all(|el| el.len() > 2) {
+                    self.insert(VecDeque::from(ngram), String::from(search_term), String::from(label), MatchType::NGram);
+                    counter += 1;
                 }
-                pb.inc(1);
-                result
-            })
-            .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
-
-        pb.finish_with_message(format!("Generated {} n-grams", ngrams.len()));
-        ngrams
+            }
+            pb.inc(1);
+        }
+        pb.finish_with_message(format!("Generated {} n-grams", counter));
     }
 
-    fn generate_abbreviations(lines: &Vec<(Vec<String>, String, String, MatchType)>) -> Vec<(Vec<String>, String, String, MatchType)> {
+    fn generate_abbreviations(&mut self, lines: &Vec<(Vec<String>, String, String)>) {
         let filtered = lines.par_iter()
-            .filter(|(segments, _, _, _)| segments.len() > 1)
+            .filter(|(segments, _, _)| segments.len() > 1)
             .collect::<Vec<_>>();
 
         let pb = ProgressBar::new(filtered.len() as u64);
@@ -284,23 +264,18 @@ impl HashMapSearchTree {
             "Generating Abbreviations {bar:40} {pos}/{len} {msg}"
         ).unwrap());
 
-        let abbrevations = filtered.par_iter()
-            .flat_map_iter(|(segments, search_term, label, _)| {
-                let mut result = Vec::new();
+        for (segments, search_term, label) in filtered {
+            let head = String::from(&segments[0]);
+            let first_char = head.chars().next().unwrap().to_string();
+            let mut abbrv = vec![first_char];
+            abbrv.extend_from_slice(&segments[1..]);
 
-                let head = String::from(&segments[0]);
-                let first_char = head.chars().next().unwrap().to_string();
-                let mut abbrv = vec![first_char];
-                abbrv.extend_from_slice(&segments[1..]);
-                result.push((abbrv, String::from(search_term), String::from(label), MatchType::Abbreviated));
+            self.insert(VecDeque::from(abbrv), String::from(search_term), String::from(label), MatchType::Abbreviated);
 
-                pb.inc(1);
-                result
-            })
-            .collect::<Vec<(Vec<String>, String, String, MatchType)>>();
+            pb.inc(1);
+        }
 
         pb.finish_with_message("Done");
-        abbrevations
     }
 
     fn tokenize(&self, input: &str) -> Result<(Vec<String>, Vec<(usize, usize)>), String> {

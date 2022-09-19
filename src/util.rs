@@ -93,7 +93,7 @@ pub(crate) fn get_spinner() -> ProgressBar {
     pb
 }
 
-pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String, MatchType)> {
+pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
     let filter_list: HashSet<String> = filter_list
         .map_or_else(
             || HashSet::new(),
@@ -102,14 +102,13 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
                 .collect::<HashSet<String>>(),
         );
     files.par_iter()
-        .map(|file| {
+        .flat_map_iter(|file| {
             let lines = read_lines(file);
             if let Some(pb) = pb {
                 pb.inc(1);
             }
             lines
         })
-        .flatten()
         .map(|line| line.trim().to_string())
         .filter(|line| line.len() > 0)
         .map(|line| {
@@ -120,12 +119,12 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
             } else {
                 String::with_capacity(0)
             };
-            (search_term, label, MatchType::Full)
+            (search_term, label)
         })
-        .filter(|(search_term, _, _)| {
+        .filter(|(search_term, _)| {
             filter_list.len() == 0 || !filter_list.contains(&search_term.to_lowercase())
         })
-        .collect::<Vec<(String, String, MatchType)>>()
+        .collect::<Vec<(String, String)>>()
 }
 
 #[derive(Debug)]

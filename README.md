@@ -26,6 +26,37 @@ The RESTful interface is implemented using [`rocket`](https://docs.rs/rocket/).
 
 There are configuration options to enable the abbrevation of search terms or the creation of n-grams from search term segments, see [`config.toml`](/config.toml).
 
+### Tree Properties
+
+It is important to note, that multiple occurrences of search terms in the input data will result in multiple labels on the leafs of the search tree.
+This is especially true if n-grams are generated.
+Each resulting match is returned alongside its match type, which may either be `MatchType::Full`, `MatchType::Abbreviated` or `MatchType::NGram`.
+
+See below for an example tree given the input:
+
+```tsv
+Puffinus          https://www.gbif.org/species/5229335
+Puffinus puffinus https://www.gbif.org/species/5229380
+Sula              https://www.gbif.org/species/2480966
+Sula bassana      https://www.gbif.org/species/4352320
+Sula leucogaster  https://www.gbif.org/species/2480975
+```
+
+![Example Tree](https://user-images.githubusercontent.com/34143268/190984324-38e7380b-5bdf-48c6-9ed1-59e1c3b25a34.png)
+Here, the orange nodes represent nodes within the search tree and purple nodes represent `Full` type matches with their corresponding labels.
+
+See below for a small tree given the following list, with n-grams enabled:
+```tsv
+Sula                          https://www.gbif.org/species/2480966
+Sula bassana                  https://www.gbif.org/species/4352320
+Sula leucogaster              https://www.gbif.org/species/2480975
+Sula leucogaster leucogaster  https://www.gbif.org/species/7192777
+```
+
+<img src="https://user-images.githubusercontent.com/34143268/190987006-bfd401e4-1122-40a9-965a-6cc18d022809.png" width="400">
+
+Here, the light green node represents a `NGram` type match.
+
 ### TextImager 2.0 Interface
 
 Supports the new TextImager interface `v1`. See:

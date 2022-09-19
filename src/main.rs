@@ -114,9 +114,9 @@ fn parse_args_and_build_tree() -> HashMapSearchTree {
         let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| DEFAULT_GENERATE_ABBRV));
         let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| DEFAULT_GENERATE_NGRAMS));
         if let Some(_filter_path) = &corpus.filter_path {
-            let _lines = read_lines(&_filter_path);
-            let _filter_list = Option::from(_lines);
-            tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
+            let _lines: Vec<String> = read_lines(&_filter_path);
+            let _filter_list = if _lines.len() == 0 { None } else { Option::from(&_lines) };
+            tree.load(&path, generate_ngrams, generate_abbrv, _filter_list);
         } else {
             tree.load(&path, generate_ngrams, generate_abbrv, filter_list);
         }

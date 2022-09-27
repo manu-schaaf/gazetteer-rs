@@ -11,7 +11,7 @@ use rayon::prelude::*;
 use rocket::FromFormField;
 use serde::{Deserialize, Serialize};
 
-use crate::util::{get_files, parse_files, Tokenizer};
+use crate::util::{CorpusFormat, get_files, parse_files, Tokenizer};
 
 #[derive(Debug, Serialize, Deserialize, FromFormField)]
 pub enum ResultSelection {
@@ -160,7 +160,7 @@ impl HashMapSearchTree {
         }
     }
 
-    pub fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, filter_list: Option<&Vec<String>>) {
+    pub fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, format: &Option<CorpusFormat>, filter_list: Option<&Vec<String>>) {
         let files: Vec<String> = get_files(root_path);
         println!("Found {} files to read", files.len());
 
@@ -168,7 +168,7 @@ impl HashMapSearchTree {
         pb.set_style(ProgressStyle::with_template(
             "Loading Input Files {bar:40} {pos}/{len} {msg}"
         ).unwrap());
-        let lines: Vec<(String, String)> = parse_files(files, Option::from(&pb), filter_list);
+        let lines: Vec<(String, String)> = parse_files(files, Option::from(&pb), format, filter_list);
 
         let search_terms: Vec<&str> = lines.iter().map(|line| line.0.as_str()).collect();
         let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> = self.tokenize_batch(search_terms.as_slice()).unwrap();

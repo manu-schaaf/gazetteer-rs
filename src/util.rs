@@ -1,14 +1,16 @@
+use std::{fmt, io};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io;
 use std::io::{BufRead, Read};
 use std::path::Path;
 
+use csv::{Reader, ReaderBuilder, Trim};
 use flate2::bufread::GzDecoder;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use tokenizers::{Normalizer, NormalizerWrapper, OffsetReferential, OffsetType, PreTokenizedString, PreTokenizer, PreTokenizerWrapper, SplitDelimiterBehavior};
 use tokenizers::normalizers::{Lowercase, NFKC};
 use tokenizers::normalizers::Sequence as NormalizerSequence;
@@ -17,6 +19,37 @@ use tokenizers::pre_tokenizers::sequence::Sequence as PreTokenizerSequence;
 use tokenizers::pre_tokenizers::whitespace::Whitespace;
 
 use crate::tree::MatchType;
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct CorpusFormat {
+    /// The comment character. Defaults to b'#'.
+    pub comment: Option<String>,
+    /// The delimiter character. Defaults to b'\t'.
+    pub delimiter: Option<String>,
+    /// If true, quotes are escaped as double quotes instead of backslash escaped.
+    /// Defaults to false.
+    pub double_quote: Option<bool>,
+    /// If true, the number of columns can vary. Defaults to false.
+    pub flexible: Option<bool>,
+    /// If true, the first line of the input will be treated as a header. Defaults to false.
+    pub has_header: Option<bool>,
+    /// The quoting character. Defaults to b'"'
+    pub quote: Option<String>,
+    /// If disabled, quotes will not be treated differently. Enabled by default.
+    pub quoting: Option<bool>,
+    /// If given, skips the first n-lines of a document, i.e. to skip metadata.
+    pub skip_lines: Option<usize>,
+    /// The column index of the search term in the input table. Defaults to 0.
+    pub search_term_column_idx: Option<usize>,
+    /// The column index of the label in the input table. Defaults to 1.
+    pub label_column_idx: Option<usize>,
+    /// If given, will insert the label into the format string by replacing the pattern string with
+    /// the label.
+    pub label_format_string: Option<String>,
+    /// The label pattern string, i.e. the part of the label_format_string that is replaced with
+    /// the label. Defaults to '{}'.
+    pub label_format_pattern: Option<String>,
+}
 
 pub fn read_lines(filename: &str) -> Vec<String> {
     let extension = match Path::new(filename.clone()).extension() {
@@ -37,6 +70,58 @@ pub fn read_lines(filename: &str) -> Vec<String> {
             reader.lines().filter_map(|line| line.ok()).collect::<Vec<String>>()
         }
     }
+}
+
+pub fn read_csv(filename: &str, format: &CorpusFormat) -> Vec<(String, String)> {
+    let extension = match Path::new(filename.clone()).extension() {
+        None => { "" }
+        Some(ext) => {
+            ext.to_str().unwrap()
+        }
+    };
+    let file = File::open(Path::new(filename)).expect("Could not open file");
+
+    let mut buf_reader = io::BufReader::new(file);
+    if let Some(skip) = format.skip_lines {
+        let mut temp = String::new();
+        for i in 0..skip {
+            buf_reader.read_line(&mut temp).expect(
+                &format!("Reached EOF after skipping {} lines!", i)
+            );
+        }
+    }
+    let mut buf_reader: Box<dyn Read> = match extension {
+        "gz" => {
+            Box::new(GzDecoder::new(buf_reader))
+        }
+        _ => {
+            Box::new(buf_reader)
+        }
+    };
+
+    let search_term_column_idx = format.search_term_column_idx.unwrap_or(0);
+    let label_column_idx = format.label_column_idx.unwrap_or(1);
+    let label_format_pattern = format.label_format_pattern.clone().unwrap_or(String::from("{}"));
+
+    ReaderBuilder::new()
+        .comment(format.comment.clone().map_or(Some(b'#'), |s| s.bytes().next()))
+        .delimiter(format.delimiter.clone().map_or(b'\t', |s| s.bytes().next().unwrap()))
+        .double_quote(format.double_quote.unwrap_or(false))
+        .flexible(format.flexible.unwrap_or(false))
+        .has_headers(format.has_header.unwrap_or(false))
+        .quote(format.quote.clone().map_or(b'"', |s| s.bytes().next().unwrap()))
+        .quoting(format.quoting.unwrap_or(false))
+        .trim(Trim::All)
+        .from_reader(buf_reader).records()
+        .filter_map(|row| row.ok())
+        .map(|row| match &format.label_format_string {
+            None => (String::from(&row[search_term_column_idx]), String::from(&row[label_column_idx])),
+            Some(format_string) => (
+                String::from(&row[search_term_column_idx]),
+                format_string.replace(&label_format_pattern, &row[label_column_idx])
+            )
+        })
+        .collect::<Vec<(String, String)>>()
 }
 
 pub fn get_files(root_path: &str) -> Vec<String> {
@@ -93,7 +178,12 @@ pub(crate) fn get_spinner() -> ProgressBar {
     pb
 }
 
-pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
+pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, format: &Option<CorpusFormat>, filter_list: Option<&Vec<String>>) -> Vec<(String, String)> {
+    let format: CorpusFormat = match format {
+        None => { CorpusFormat::default() }
+        Some(format) => { format.clone() }
+    };
+
     let filter_list: HashSet<String> = filter_list
         .map_or_else(
             || HashSet::new(),
@@ -103,23 +193,11 @@ pub fn parse_files<>(files: Vec<String>, pb: Option<&ProgressBar>, filter_list: 
         );
     files.par_iter()
         .flat_map_iter(|file| {
-            let lines = read_lines(file);
+            let pairs = read_csv(file, &format);
             if let Some(pb) = pb {
                 pb.inc(1);
             }
-            lines
-        })
-        .map(|line| line.trim().to_string())
-        .filter(|line| line.len() > 0)
-        .map(|line| {
-            let split = line.split('\t').collect::<Vec<&str>>();
-            let search_term = String::from(split[0].trim());
-            let label = if split.len() > 1 {
-                String::from(split[1].trim())
-            } else {
-                String::with_capacity(0)
-            };
-            (search_term, label)
+            pairs
         })
         .filter(|(search_term, _)| {
             filter_list.len() == 0 || !filter_list.contains(&search_term.to_lowercase())

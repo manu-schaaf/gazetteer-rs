@@ -92,21 +92,21 @@ fn test_sample() {
 #[test]
 fn test_small_string_tree() {
     let mut tree = HashMapSearchTree::default();
-    tree.load("resources/taxa.txt", false, false, None);
+    tree.load("resources/taxa.txt", false, false, None, None);
     process_test_file(&tree, Option::from(5));
 }
 
 #[test]
 fn test_big_string_tree() {
     let mut tree = HashMapSearchTree::default();
-    tree.load("resources/BIOfid/*", false, false, None);
+    tree.load("resources/BIOfid/*", false, false, None, None);
     process_test_file(&tree, Option::from(5));
 }
 
 #[test]
 fn test_big_multi_tree() {
     let mut tree = HashMapSearchTree::default();
-    tree.load("resources/BIOfid/*", false, false, None);
+    tree.load("resources/BIOfid/*", false, false, None, None);
     process_test_file(&tree, Option::from(5));
 }
 

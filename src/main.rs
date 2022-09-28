@@ -6,8 +6,10 @@ extern crate rocket;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
+use std::str::FromStr;
 
 use itertools::Itertools;
+use rocket::{Request, State};
 #[cfg(feature = "gui")]
 use rocket::form;
 #[cfg(feature = "gui")]
@@ -18,28 +20,26 @@ use rocket::fs::NamedFile;
 #[cfg(feature = "gui")]
 use rocket::http::Status;
 use rocket::serde::json::Json;
-use rocket::State;
 #[cfg(feature = "gui")]
 use rocket_dyn_templates::{context, Template};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection};
-use gazetteer::util::{CorpusFormat, read_lines};
+use gazetteer::util::{CorpusFormat, parse_optional, read_lines};
 
 #[cfg(test)]
 mod rocket_test;
 
-const DEFAULT_MAX_LEN: usize = 5;
 const DEFAULT_GENERATE_ABBRV: bool = false;
 const DEFAULT_GENERATE_SKIP_GRAMS: bool = false;
 const DEFAULT_SKIP_GRAM_MAX_SKIPS: i32 = 2;
 const DEFAULT_SKIP_GRAM_MIN_LENGTH: i32 = 2;
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Request<'r> {
+struct ProcessRequest<'r> {
     text: Cow<'r, str>,
-    max_len: Option<usize>,
+    max_len: Option<String>,
     result_selection: Option<ResultSelection>,
 }
 
@@ -50,12 +50,12 @@ async fn v1_communication_layer() -> Option<NamedFile> {
 
 #[post("/v1/process", data = "<request>")]
 async fn v1_process(
-    request: Json<Request<'_>>,
+    request: Json<ProcessRequest<'_>>,
     tree: &State<HashMapSearchTree>,
 ) -> Value {
     let results = tree.search(
         &request.text,
-        request.max_len,
+        parse_optional::<usize>(&request.max_len),
         Option::from(&request.result_selection),
     );
     let results: Vec<Value> = results.into_iter()
@@ -206,12 +206,12 @@ fn submit<'r>(mut form: Form<Contextual<'r, Submit<'r>>>, tree: &State<HashMapSe
 #[cfg(feature = "gui")]
 #[post("/search", format = "json", data = "<request>")]
 async fn search(
-    request: Json<Request<'_>>,
+    request: Json<ProcessRequest<'_>>,
     tree: &State<HashMapSearchTree>,
 ) -> Value {
     let results = tree.search(
         &request.text,
-        request.max_len,
+        parse_optional(&request.max_len),
         Option::from(&request.result_selection),
     );
     json!({

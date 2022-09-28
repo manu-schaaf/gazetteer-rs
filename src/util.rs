@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io;
 use std::io::{BufRead, Read};
 use std::path::Path;
+use std::str::FromStr;
 
 use csv::{Reader, ReaderBuilder, Trim};
 use flate2::bufread::GzDecoder;
@@ -279,4 +280,8 @@ pub fn create_skip_grams(mut items: Vec<Vec<String>>, max_skips: i32, min_length
     } else {
         return items;
     }
+}
+
+pub fn parse_optional<I: FromStr>(string: &Option<String>) -> Option<I> {
+    string.as_ref().map_or(None, |s| s.parse::<I>().map_or(None, |val| Some(val)))
 }

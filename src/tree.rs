@@ -6,12 +6,11 @@ use std::hash::{Hash, Hasher};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
-use ngrams::Ngram;
 use rayon::prelude::*;
 use rocket::FromFormField;
 use serde::{Deserialize, Serialize};
 
-use crate::util::{CorpusFormat, get_files, parse_files, Tokenizer};
+use crate::util::{CorpusFormat, get_files, create_skip_grams, parse_files, Tokenizer};
 
 #[derive(Debug, Serialize, Deserialize, FromFormField)]
 pub enum ResultSelection {
@@ -25,7 +24,7 @@ pub enum MatchType {
     None,
     Full,
     Abbreviated,
-    NGram,
+    SkipGram,
 }
 
 impl MatchType {
@@ -34,7 +33,7 @@ impl MatchType {
             MatchType::None => { -1 }
             MatchType::Full => { 0 }
             MatchType::Abbreviated => { 1 }
-            MatchType::NGram => { 2 }
+            MatchType::SkipGram => { 2 }
         }
     }
 }
@@ -57,7 +56,7 @@ impl Display for MatchType {
             MatchType::None => { write!(f, "None") }
             MatchType::Full => { write!(f, "Full") }
             MatchType::Abbreviated => { write!(f, "Abbreviated") }
-            MatchType::NGram => { write!(f, "NGram") }
+            MatchType::SkipGram => { write!(f, "SkipGram") }
         }
     }
 }
@@ -128,7 +127,6 @@ impl Match {
     }
 }
 
-
 #[derive(Debug)]
 pub struct HashMapSearchTree {
     pub matches: HashSet<Match>,
@@ -160,7 +158,7 @@ impl HashMapSearchTree {
         }
     }
 
-    pub fn load(&mut self, root_path: &str, generate_ngrams: bool, generate_abbrv: bool, format: &Option<CorpusFormat>, filter_list: Option<&Vec<String>>) {
+    pub fn load(&mut self, root_path: &str, generate_skip_grams: bool, skip_gram_min_length: i32, skip_gram_max_skips: i32, filter_list: Option<&Vec<String>>, generate_abbrv: bool, format: &Option<CorpusFormat>) {
         let files: Vec<String> = get_files(root_path);
         println!("Found {} files to read", files.len());
 
@@ -178,8 +176,8 @@ impl HashMapSearchTree {
 
         self.load_entries(&entries);
 
-        if generate_ngrams {
-            self.generate_ngrams(&entries);
+        if generate_skip_grams {
+            self.generate_skip_grams(&entries, skip_gram_min_length, skip_gram_max_skips);
         }
 
         if generate_abbrv {
@@ -227,31 +225,34 @@ impl HashMapSearchTree {
         }
     }
 
-    fn generate_ngrams(&mut self, lines: &Vec<(Vec<String>, String, String)>) {
+    fn generate_skip_grams(&mut self, lines: &Vec<(Vec<String>, String, String)>, min_length: i32, max_skips: i32) {
         let filtered = lines.par_iter()
-            .filter(|(segments, _, _)| segments.len() > 2)
+            .filter(|(segments, _, _)| segments.len() > min_length as usize)
             .collect::<Vec<_>>();
 
         let pb = ProgressBar::new(filtered.len() as u64);
         pb.set_style(ProgressStyle::with_template(
-            "Generating n-Grams {bar:40} {pos}/{len} {msg}"
+            "Generating skip-grams {bar:40} {pos}/{len} {msg}"
         ).unwrap());
 
         let mut counter: i64 = 0;
         for (segments, search_term, label) in filtered {
-            let ngrams = segments.clone().into_iter()
-                .ngrams(2)
-                .collect::<Vec<Vec<String>>>();
-            for ngram in ngrams {
-                // Check whether any part is an abbreviation
-                if ngram.iter().all(|el| el.len() > 2) {
-                    self.insert(VecDeque::from(ngram), String::from(search_term), String::from(label), MatchType::NGram);
-                    counter += 1;
-                }
+            let mut deletes = create_skip_grams(vec![segments.clone()], max_skips, min_length);
+            deletes.sort();
+            deletes.dedup();
+            println!("{:?}", deletes);
+            for skip_gram in deletes {
+                self.insert(
+                    VecDeque::from(skip_gram),
+                    String::from(search_term),
+                    String::from(label),
+                    MatchType::SkipGram,
+                );
+                counter += 1;
             }
             pb.inc(1);
         }
-        pb.finish_with_message(format!("Generated {} n-grams", counter));
+        pb.finish_with_message(format!("Generated {} skip-grams", counter));
     }
 
     fn generate_abbreviations(&mut self, lines: &Vec<(Vec<String>, String, String)>) {

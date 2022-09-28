@@ -32,7 +32,9 @@ mod rocket_test;
 
 const DEFAULT_MAX_LEN: usize = 5;
 const DEFAULT_GENERATE_ABBRV: bool = false;
-const DEFAULT_GENERATE_NGRAMS: bool = false;
+const DEFAULT_GENERATE_SKIP_GRAMS: bool = false;
+const DEFAULT_SKIP_GRAM_MAX_SKIPS: i32 = 2;
+const DEFAULT_SKIP_GRAM_MIN_LENGTH: i32 = 2;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Request<'r> {
@@ -83,7 +85,9 @@ async fn v1_process(
 struct Config {
     filter_path: Option<String>,
     generate_abbrv: Option<bool>,
-    generate_ngrams: Option<bool>,
+    generate_skip_grams: Option<bool>,
+    skip_gram_min_length: Option<i32>,
+    skip_gram_max_skips: Option<i32>,
     corpora: HashMap<String, Corpus>,
 }
 
@@ -92,7 +96,9 @@ struct Corpus {
     path: String,
     filter_path: Option<String>,
     generate_abbrv: Option<bool>,
-    generate_ngrams: Option<bool>,
+    generate_skip_grams: Option<bool>,
+    skip_gram_min_length: Option<i32>,
+    skip_gram_max_skips: Option<i32>,
     format: Option<CorpusFormat>,
 }
 
@@ -113,14 +119,16 @@ fn parse_args_and_build_tree() -> HashMapSearchTree {
     for corpus in config.corpora.values() {
         let path: &String = &corpus.path;
         let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| config.generate_abbrv.unwrap_or_else(|| DEFAULT_GENERATE_ABBRV));
-        let generate_ngrams = corpus.generate_ngrams.unwrap_or_else(|| config.generate_ngrams.unwrap_or_else(|| DEFAULT_GENERATE_NGRAMS));
+        let generate_skip_grams = corpus.generate_skip_grams.unwrap_or_else(|| config.generate_skip_grams.unwrap_or_else(|| DEFAULT_GENERATE_SKIP_GRAMS));
+        let skip_gram_min_length = corpus.skip_gram_min_length.unwrap_or_else(|| config.skip_gram_min_length.unwrap_or_else(|| DEFAULT_SKIP_GRAM_MIN_LENGTH));
+        let skip_gram_max_skips = corpus.skip_gram_max_skips.unwrap_or_else(|| config.skip_gram_max_skips.unwrap_or_else(|| DEFAULT_SKIP_GRAM_MAX_SKIPS));
         let format = &corpus.format;
         if let Some(_filter_path) = &corpus.filter_path {
             let _lines: Vec<String> = read_lines(&_filter_path);
             let _filter_list = if _lines.len() == 0 { None } else { Option::from(&_lines) };
-            tree.load(&path, generate_ngrams, generate_abbrv, format, _filter_list);
+            tree.load(&path, generate_skip_grams, skip_gram_min_length, skip_gram_max_skips, _filter_list, generate_abbrv, format);
         } else {
-            tree.load(&path, generate_ngrams, generate_abbrv, format, filter_list);
+            tree.load(&path, generate_skip_grams, skip_gram_min_length, skip_gram_max_skips, filter_list, generate_abbrv, format);
         }
     }
     println!("Finished loading gazetteer.");

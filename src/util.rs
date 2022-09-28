@@ -1,7 +1,7 @@
-use std::{fmt, io};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs::File;
+use std::io;
 use std::io::{BufRead, Read};
 use std::path::Path;
 
@@ -256,5 +256,27 @@ impl Tokenizer {
             .collect::<Vec<(Vec<String>, Vec<(usize, usize)>)>>();
         pb.finish_with_message("Done");
         encodings
+    }
+}
+
+
+pub fn create_skip_grams(mut items: Vec<Vec<String>>, max_skips: i32, min_length: i32) -> Vec<Vec<String>> {
+    if max_skips > 0 && items.iter().all(|item| item.len() > min_length as usize) {
+        let mut deleted = Vec::new();
+        for item in items {
+            let item = item.clone();
+            let mut d: Vec<String> = Vec::new();
+            let l = item.len();
+            for i in 1..l {
+                d.clear();
+                d.extend_from_slice(&item[..i]);
+                d.extend_from_slice(&item[i + 1..]);
+                deleted.push(d.clone());
+            }
+        }
+        deleted.append(&mut create_skip_grams(deleted.clone(), max_skips - 1, min_length));
+        return deleted;
+    } else {
+        return items;
     }
 }

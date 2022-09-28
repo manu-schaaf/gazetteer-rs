@@ -230,7 +230,7 @@ impl HashMapSearchTree {
         }
     }
 
-    fn generate_skip_grams(&mut self, lines: &Vec<(Vec<String>, String, String)>, min_length: i32, max_skips: i32) {
+    pub(crate) fn generate_skip_grams(&mut self, lines: &Vec<(Vec<String>, String, String)>, min_length: i32, max_skips: i32) {
         let filtered = lines.par_iter()
             .filter(|(segments, _, _)| segments.len() > min_length as usize)
             .collect::<Vec<_>>();
@@ -259,7 +259,7 @@ impl HashMapSearchTree {
         pb.finish_with_message(format!("Generated {} skip-grams", counter));
     }
 
-    fn generate_abbreviations(&mut self, lines: &Vec<(Vec<String>, String, String)>) {
+    pub(crate) fn generate_abbreviations(&mut self, lines: &Vec<(Vec<String>, String, String)>) {
         let filtered = lines.par_iter()
             .filter(|(segments, _, _)| segments.len() > 1)
             .collect::<Vec<_>>();
@@ -283,7 +283,7 @@ impl HashMapSearchTree {
         pb.finish_with_message("Done");
     }
 
-    fn tokenize(&self, input: &str) -> Result<(Vec<String>, Vec<(usize, usize)>), String> {
+    pub(crate) fn tokenize(&self, input: &str) -> Result<(Vec<String>, Vec<(usize, usize)>), String> {
         match &self.tokenizer {
             Some(tokenizer) => {
                 Ok(tokenizer.tokenize(input))
@@ -294,7 +294,7 @@ impl HashMapSearchTree {
         }
     }
 
-    fn tokenize_batch(&self, input: &[&str]) -> Result<Vec<(Vec<String>, Vec<(usize, usize)>)>, String> {
+    pub(crate) fn tokenize_batch(&self, input: &[&str]) -> Result<Vec<(Vec<String>, Vec<(usize, usize)>)>, String> {
         match &self.tokenizer {
             Some(tokenizer) => {
                 Ok(tokenizer.encode_batch(input))
@@ -305,7 +305,7 @@ impl HashMapSearchTree {
         }
     }
 
-    fn traverse(&self, values: VecDeque<String>) -> Result<Vec<(Vec<String>, &HashSet<Match>)>, String> {
+    pub(crate) fn traverse(&self, values: VecDeque<String>) -> Result<Vec<(Vec<String>, &HashSet<Match>)>, String> {
         let vec = self.traverse_internal(values, Vec::new(), Vec::new());
         if vec.len() > 0 {
             Ok(vec)
@@ -389,5 +389,54 @@ impl HashMapSearchTree {
                 results
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use itertools::Itertools;
+
+    use crate::tree::{HashMapSearchTree, ResultSelection};
+
+    #[test]
+    fn test_sample() {
+        let mut tree = HashMapSearchTree::default();
+        let entries: Vec<(String, String)> = vec![
+            ("An example".to_string(), "uri:example".to_string()),
+            ("An example phrase".to_string(), "uri:phrase".to_string()),
+        ];
+        tree.load(entries.clone(), false, 0, 0, false);
+        let tree = tree;
+
+        let results = tree.search("An xyz", Some(3), None);
+        assert!(results.is_empty());
+
+        let results = tree.search(&entries[0].0, Some(3), Some(&ResultSelection::Last));
+        println!("{:?}", results);
+        let results = results.first().unwrap();
+        let results = &results.1;
+        assert_eq!(results.len(), 1);
+        assert_eq!(&results[0].match_label, &entries[0].1);
+
+        let results = tree.search(&entries[1].0, Some(3), Some(&ResultSelection::Last));
+        println!("{:?}", results);
+        let results = results.first().unwrap();
+        let matches = &results.1;
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&matches[0].match_label, &entries[1].1);
+
+        let results = tree.search(&entries[1].0, Some(2), Some(&ResultSelection::Last));
+        println!("{:?}", results);
+        let results = results.first().unwrap();
+        let matches = &results.1;
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&matches[0].match_label, &entries[0].1);
+
+        let results = tree.search(&entries[1].0, Some(3), Some(&ResultSelection::All));
+        println!("{:?}", results);
+        let matches: Vec<_> = results.into_iter().flat_map(|r| r.1).collect();
+        assert_eq!(matches.len(), 2);
+        let match_labels: Vec<String> = matches.into_iter().map(|mtch| mtch.match_label.clone()).sorted().collect();
+        assert_eq!(match_labels, vec!["uri:example", "uri:phrase"]);
     }
 }

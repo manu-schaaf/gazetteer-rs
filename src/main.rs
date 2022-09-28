@@ -126,9 +126,9 @@ fn parse_args_and_build_tree() -> HashMapSearchTree {
         if let Some(_filter_path) = &corpus.filter_path {
             let _lines: Vec<String> = read_lines(&_filter_path);
             let _filter_list = if _lines.len() == 0 { None } else { Option::from(&_lines) };
-            tree.load(&path, generate_skip_grams, skip_gram_min_length, skip_gram_max_skips, _filter_list, generate_abbrv, format);
+            tree.load_file(&path, generate_skip_grams, skip_gram_min_length, skip_gram_max_skips, _filter_list, generate_abbrv, format);
         } else {
-            tree.load(&path, generate_skip_grams, skip_gram_min_length, skip_gram_max_skips, filter_list, generate_abbrv, format);
+            tree.load_file(&path, generate_skip_grams, skip_gram_min_length, skip_gram_max_skips, filter_list, generate_abbrv, format);
         }
     }
     println!("Finished loading gazetteer.");

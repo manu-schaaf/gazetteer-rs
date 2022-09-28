@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use rocket::FromFormField;
 use serde::{Deserialize, Serialize};
 
-use crate::util::{CorpusFormat, get_files, create_skip_grams, parse_files, Tokenizer};
+use crate::util::{CorpusFormat, create_skip_grams, get_files, parse_files, Tokenizer};
 
 #[derive(Debug, Serialize, Deserialize, FromFormField)]
 pub enum ResultSelection {
@@ -158,7 +158,7 @@ impl HashMapSearchTree {
         }
     }
 
-    pub fn load(&mut self, root_path: &str, generate_skip_grams: bool, skip_gram_min_length: i32, skip_gram_max_skips: i32, filter_list: Option<&Vec<String>>, generate_abbrv: bool, format: &Option<CorpusFormat>) {
+    pub fn load_file(&mut self, root_path: &str, generate_skip_grams: bool, skip_gram_min_length: i32, skip_gram_max_skips: i32, filter_list: Option<&Vec<String>>, generate_abbrv: bool, format: &Option<CorpusFormat>) {
         let files: Vec<String> = get_files(root_path);
         println!("Found {} files to read", files.len());
 
@@ -167,10 +167,15 @@ impl HashMapSearchTree {
             "Loading Input Files {bar:40} {pos}/{len} {msg}"
         ).unwrap());
         let lines: Vec<(String, String)> = parse_files(files, Option::from(&pb), format, filter_list);
+        pb.finish_with_message("Done");
 
-        let search_terms: Vec<&str> = lines.iter().map(|line| line.0.as_str()).collect();
+        self.load(lines, generate_skip_grams, skip_gram_min_length, skip_gram_max_skips, generate_abbrv);
+    }
+
+    pub fn load(&mut self, entries: Vec<(String, String)>, generate_skip_grams: bool, skip_gram_min_length: i32, skip_gram_max_skips: i32, generate_abbrv: bool) {
+        let search_terms: Vec<&str> = entries.iter().map(|line| line.0.as_str()).collect();
         let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> = self.tokenize_batch(search_terms.as_slice()).unwrap();
-        let entries: Vec<(Vec<String>, String, String)> = segmented.into_iter().zip(lines.into_iter())
+        let entries: Vec<(Vec<String>, String, String)> = segmented.into_iter().zip(entries.into_iter())
             .map(|(segments, (search_term, label))| (segments.0, search_term, label))
             .collect::<Vec<(Vec<String>, String, String)>>();
 
@@ -185,7 +190,7 @@ impl HashMapSearchTree {
         }
     }
 
-    fn load_entries(&mut self, entries: &Vec<(Vec<String>, String, String)>) {
+    pub(crate) fn load_entries(&mut self, entries: &Vec<(Vec<String>, String, String)>) {
         let pb = ProgressBar::new(entries.len() as u64);
         pb.set_style(ProgressStyle::with_template(
             "Loading Entries {bar:40} {pos}/{len} {msg}"
@@ -240,7 +245,6 @@ impl HashMapSearchTree {
             let mut deletes = create_skip_grams(vec![segments.clone()], max_skips, min_length);
             deletes.sort();
             deletes.dedup();
-            println!("{:?}", deletes);
             for skip_gram in deletes {
                 self.insert(
                     VecDeque::from(skip_gram),

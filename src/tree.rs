@@ -132,6 +132,7 @@ pub struct HashMapSearchTree {
     pub matches: HashSet<Match>,
     pub children: HashMap<String, HashMapSearchTree>,
     tokenizer: Option<Tokenizer>,
+    tree_depth: usize,
 }
 
 impl HashMapSearchTree {
@@ -140,6 +141,7 @@ impl HashMapSearchTree {
             matches: HashSet::new(),
             children: HashMap::new(),
             tokenizer: Option::from(Tokenizer::default()),
+            tree_depth: 0 as usize,
         }
     }
 
@@ -148,6 +150,7 @@ impl HashMapSearchTree {
             matches: HashSet::from([Match::new(match_type, match_string, match_label)]),
             children: HashMap::new(),
             tokenizer: None,
+            tree_depth: 0 as usize,
         }
     }
 
@@ -204,6 +207,10 @@ impl HashMapSearchTree {
     }
 
     pub fn insert(&mut self, mut values: VecDeque<String>, match_string: String, match_label: String, match_type: MatchType) {
+        if values.len() > self.tree_depth {
+            self.tree_depth = values.len() as usize;
+        }
+
         if let Some(value) = values.pop_front() {
             let value = value;
             match self.children.get_mut(&value) {
@@ -316,7 +323,7 @@ impl HashMapSearchTree {
 
     pub fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, Vec<Match>, usize, usize)> {
         let result_selection = result_selection.unwrap_or(&ResultSelection::Longest);
-        let max_len = max_len.unwrap_or(5 as usize);
+        let max_len = max_len.unwrap_or(self.tree_depth as usize);
 
         let (mut slices, mut offsets) = self.tokenize(text).unwrap();
 

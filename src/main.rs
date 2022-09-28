@@ -55,7 +55,7 @@ async fn v1_process(
 ) -> Value {
     let results = tree.search(
         &request.text,
-        request.max_len.or_else(|| Some(DEFAULT_MAX_LEN)),
+        request.max_len,
         Option::from(&request.result_selection),
     );
     let results: Vec<Value> = results.into_iter()
@@ -211,7 +211,7 @@ async fn search(
 ) -> Value {
     let results = tree.search(
         &request.text,
-        request.max_len.or_else(|| Some(DEFAULT_MAX_LEN)),
+        request.max_len,
         Option::from(&request.result_selection),
     );
     json!({

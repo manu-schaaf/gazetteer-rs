@@ -16,7 +16,7 @@ use crate::util::{CorpusFormat, create_skip_grams, get_files, parse_files, Token
 pub enum ResultSelection {
     All,
     Last,
-    Longest,
+    LastPreferFull,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -322,7 +322,7 @@ impl HashMapSearchTree {
     }
 
     pub fn search<'a>(&self, text: &'a str, max_len: Option<usize>, result_selection: Option<&ResultSelection>) -> Vec<(String, Vec<Match>, usize, usize)> {
-        let result_selection = result_selection.unwrap_or(&ResultSelection::Longest);
+        let result_selection = result_selection.unwrap_or(&ResultSelection::LastPreferFull);
         let max_len = max_len.unwrap_or(self.tree_depth as usize);
 
         let (mut slices, mut offsets) = self.tokenize(text).unwrap();
@@ -354,10 +354,19 @@ impl HashMapSearchTree {
                         let end = offsets[result.0.len() - 1].1;
                         vec![(result.0.join(" "), result.1.clone(), start, end)]
                     }
-                    ResultSelection::Longest => {
-                        let result = results.into_iter().sorted_by_key(|(a, _)| a.len()).last().expect("Failed to get sorted result");
+                    ResultSelection::LastPreferFull => {
+                        let result = results.last().unwrap();
                         let end = offsets[result.0.len() - 1].1;
-                        vec![(result.0.join(" "), result.1.clone(), start, end)]
+                        if result.1.iter().any(|mtch| mtch.match_type == MatchType::Full) {
+                            let mut _matches = HashSet::new();
+                            _matches.extend(result.1.iter().filter_map(|mtch| if mtch.match_type == MatchType::Full {
+                                Some(mtch.clone())
+                            } else {
+                                None
+                            }));
+                            return vec![(result.0.join(" "), _matches, start, end)];
+                        }
+                        return vec![(result.0.join(" "), result.1.clone(), start, end)];
                     }
                 }
             })

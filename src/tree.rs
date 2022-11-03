@@ -277,27 +277,27 @@ impl HashMapSearchTree {
             "Generating Abbreviations {bar:40} {pos}/{len} {msg}"
         ).unwrap());
 
+        let mut counter: i64 = 0;
+        let mut abbrv: Vec<String> = Vec::new();
         for (segments, search_term, label) in filtered {
-            let first_segment = String::from(&segments[0]);
-            let first_char = first_segment.chars().next().unwrap().to_string();
-            let mut abbrv = vec![first_char];
-            abbrv.extend_from_slice(&segments[1..]);
+            for i in 0..(segments.len() - 1) {
+                abbrv.clear();
+                let target_segment = String::from(&segments[i]);
+                let abbreviated_segment = target_segment.chars().next().unwrap().to_string();
 
-            self.insert(VecDeque::from(abbrv), String::from(search_term), String::from(label), MatchType::Abbreviated);
+                if i > 0 {
+                    abbrv.extend_from_slice(&segments[0..i])
+                }
+                abbrv.push(abbreviated_segment);
+                abbrv.extend_from_slice(&segments[(i + 1)..]);
 
-            if segments.len() > 2 {
-                let second_segment = String::from(&segments[1]);
-                let first_char = second_segment.chars().next().unwrap().to_string();
-                let mut abbrv = vec![first_segment, first_char];
-                abbrv.extend_from_slice(&segments[2..]);
-
-                self.insert(VecDeque::from(abbrv), String::from(search_term), String::from(label), MatchType::Abbreviated);
+                self.insert(VecDeque::from(abbrv.clone()), String::from(search_term), String::from(label), MatchType::Abbreviated);
+                counter += 1;
             }
-
             pb.inc(1);
         }
 
-        pb.finish_with_message("Done");
+        pb.finish_with_message(format!("Generated {} abbreviated entries", counter));
     }
 
     pub(crate) fn tokenize(&self, input: &str) -> Result<(Vec<String>, Vec<(usize, usize)>), String> {

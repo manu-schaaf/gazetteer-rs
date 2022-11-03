@@ -9,24 +9,24 @@ StandardCharsets = luajava.bindClass("java.nio.charset.StandardCharsets")
 function serialize(inputCas, outputStream, parameters)
     -- Get data from CAS
     local doc_text = inputCas:getDocumentText();
-    if parameters ~= nil then
-        local max_len = parameters:get("max_len")
-        local result_selection = parameters:get("result_selection")
+    if parameters then
+        local max_len = parameters["max_len"]
+        local result_selection = parameters["result_selection"]
         -- Encode data as JSON object and write to stream
-        if max_len ~= nil and result_selection ~= nil then
+        if max_len and result_selection then
             outputStream:write(json.encode({
                 text = doc_text,
                 max_len = max_len,
                 result_selection = result_selection,
             }))
             return
-        elseif max_len ~= nil then
+        elseif max_len then
             outputStream:write(json.encode({
                 text = doc_text,
                 max_len = max_len,
             }))
             return
-        elseif result_selection ~= nil then
+        elseif result_selection then
             outputStream:write(json.encode({
                 text = doc_text,
                 result_selection = result_selection,

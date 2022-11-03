@@ -38,7 +38,7 @@
                     {{ m::select(
                         label="Result Selection Method",
                         name="result_selection",
-                        options=["Longest", "Last", "All"]
+                        options=["LastPreferFull", "Last", "All"]
                     ) }}
                 </div>
             </div>

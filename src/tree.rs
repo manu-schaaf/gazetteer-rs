@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use rayon::prelude::*;
+use rocket::form::validate::Len;
 use rocket::FromFormField;
 use serde::{Deserialize, Serialize};
 
@@ -277,12 +278,21 @@ impl HashMapSearchTree {
         ).unwrap());
 
         for (segments, search_term, label) in filtered {
-            let head = String::from(&segments[0]);
-            let first_char = head.chars().next().unwrap().to_string();
+            let first_segment = String::from(&segments[0]);
+            let first_char = first_segment.chars().next().unwrap().to_string();
             let mut abbrv = vec![first_char];
             abbrv.extend_from_slice(&segments[1..]);
 
             self.insert(VecDeque::from(abbrv), String::from(search_term), String::from(label), MatchType::Abbreviated);
+
+            if segments.len() > 2 {
+                let second_segment = String::from(&segments[1]);
+                let first_char = second_segment.chars().next().unwrap().to_string();
+                let mut abbrv = vec![first_segment, first_char];
+                abbrv.extend_from_slice(&segments[2..]);
+
+                self.insert(VecDeque::from(abbrv), String::from(search_term), String::from(label), MatchType::Abbreviated);
+            }
 
             pb.inc(1);
         }

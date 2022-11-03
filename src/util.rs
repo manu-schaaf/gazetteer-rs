@@ -115,6 +115,7 @@ pub fn read_csv(filename: &str, format: &CorpusFormat) -> Vec<(String, String)> 
         .trim(Trim::All)
         .from_reader(buf_reader).records()
         .filter_map(|row| row.ok())
+        .filter(|row| !row.is_empty())
         .map(|row| match &format.label_format_string {
             None => (String::from(&row[search_term_column_idx]), String::from(&row[label_column_idx])),
             Some(format_string) => (

@@ -114,10 +114,8 @@ fn parse_args_and_build_tree() -> HashMapSearchTree {
     let config: Config = toml::from_str(&config).unwrap();
 
     let mut tree = HashMapSearchTree::default();
-    let lines = config
-        .filter_path
-        .map_or_else(|| Vec::new(), |p| read_lines(&p));
-    let filter_list = if lines.len() == 0 {
+    let lines = config.filter_path.map_or_else(Vec::new, |p| read_lines(&p));
+    let filter_list = if lines.is_empty() {
         None
     } else {
         Option::from(&lines)
@@ -125,36 +123,34 @@ fn parse_args_and_build_tree() -> HashMapSearchTree {
 
     for corpus in config.corpora.values() {
         let path: &String = &corpus.path;
-        let generate_abbrv = corpus.generate_abbrv.unwrap_or_else(|| {
-            config
-                .generate_abbrv
-                .unwrap_or_else(|| DEFAULT_GENERATE_ABBRV)
-        });
+        let generate_abbrv = corpus
+            .generate_abbrv
+            .unwrap_or_else(|| config.generate_abbrv.unwrap_or(DEFAULT_GENERATE_ABBRV));
         let generate_skip_grams = corpus.generate_skip_grams.unwrap_or_else(|| {
             config
                 .generate_skip_grams
-                .unwrap_or_else(|| DEFAULT_GENERATE_SKIP_GRAMS)
+                .unwrap_or(DEFAULT_GENERATE_SKIP_GRAMS)
         });
         let skip_gram_min_length = corpus.skip_gram_min_length.unwrap_or_else(|| {
             config
                 .skip_gram_min_length
-                .unwrap_or_else(|| DEFAULT_SKIP_GRAM_MIN_LENGTH)
+                .unwrap_or(DEFAULT_SKIP_GRAM_MIN_LENGTH)
         });
         let skip_gram_max_skips = corpus.skip_gram_max_skips.unwrap_or_else(|| {
             config
                 .skip_gram_max_skips
-                .unwrap_or_else(|| DEFAULT_SKIP_GRAM_MAX_SKIPS)
+                .unwrap_or(DEFAULT_SKIP_GRAM_MAX_SKIPS)
         });
         let format = &corpus.format;
         if let Some(_filter_path) = &corpus.filter_path {
-            let _lines: Vec<String> = read_lines(&_filter_path);
-            let _filter_list = if _lines.len() == 0 {
+            let _lines: Vec<String> = read_lines(_filter_path);
+            let _filter_list = if _lines.is_empty() {
                 None
             } else {
                 Option::from(&_lines)
             };
             tree.load_file(
-                &path,
+                path,
                 generate_skip_grams,
                 skip_gram_min_length,
                 skip_gram_max_skips,
@@ -164,7 +160,7 @@ fn parse_args_and_build_tree() -> HashMapSearchTree {
             );
         } else {
             tree.load_file(
-                &path,
+                path,
                 generate_skip_grams,
                 skip_gram_min_length,
                 skip_gram_max_skips,

@@ -103,18 +103,19 @@ pub struct HashMapSearchTree {
     tree_depth: usize,
 }
 
-impl HashMapSearchTree {
-    pub fn default() -> Self
+impl Default for HashMapSearchTree {
+    fn default() -> Self
     where
         Self: Sized,
     {
         HashMapSearchTree {
             search_map: HashMap::new(),
             tokenizer: Tokenizer::default(),
-            tree_depth: 0 as usize,
+            tree_depth: 0,
         }
     }
-
+}
+impl HashMapSearchTree {
     pub fn load_file(
         &mut self,
         root_path: &str,
@@ -199,7 +200,7 @@ impl HashMapSearchTree {
         match_type: MatchType,
     ) {
         if segments.len() > self.tree_depth {
-            self.tree_depth = segments.len() as usize;
+            self.tree_depth = segments.len();
         }
 
         match self.search_map.get_mut(&segments) {
@@ -314,7 +315,7 @@ impl HashMapSearchTree {
         result_selection: Option<&ResultSelection>,
     ) -> Vec<(String, Vec<Match>, usize, usize)> {
         let result_selection = result_selection.unwrap_or(&ResultSelection::LastPreferFull);
-        let max_len = max_len.unwrap_or(self.tree_depth as usize);
+        let max_len = max_len.unwrap_or(self.tree_depth);
 
         let (mut slices, mut offsets) = self.tokenize(text);
 
@@ -375,7 +376,7 @@ impl HashMapSearchTree {
                             }));
                             return vec![(result.0.join(" "), _matches, start, end)];
                         }
-                        return vec![(result.0.join(" "), result.1.clone(), start, end)];
+                        vec![(result.0.join(" "), result.1.clone(), start, end)]
                     }
                 }
             })
@@ -401,7 +402,7 @@ impl HashMapSearchTree {
                 results.push((sub_window, result));
             }
         }
-        if results.len() > 0 {
+        if !results.is_empty() {
             Ok(results)
         } else {
             Err(String::from("No matches found"))

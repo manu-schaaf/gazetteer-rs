@@ -53,7 +53,7 @@ pub struct CorpusFormat {
 }
 
 pub fn read_lines(filename: &str) -> Vec<String> {
-    let extension = match Path::new(filename.clone()).extension() {
+    let extension = match Path::new(filename).extension() {
         None => "",
         Some(ext) => ext.to_str().unwrap(),
     };
@@ -65,7 +65,7 @@ pub fn read_lines(filename: &str) -> Vec<String> {
             GzDecoder::new(reader)
                 .read_to_string(&mut s)
                 .expect("Failed to decode file with .gz extension.");
-            s.lines().map(|s| String::from(s)).collect::<Vec<String>>()
+            s.lines().map(String::from).collect::<Vec<String>>()
         }
         _ => reader
             .lines()
@@ -75,7 +75,7 @@ pub fn read_lines(filename: &str) -> Vec<String> {
 }
 
 pub fn read_csv(filename: &str, format: &CorpusFormat) -> Vec<(String, String)> {
-    let extension = match Path::new(filename.clone()).extension() {
+    let extension = match Path::new(filename).extension() {
         None => "",
         Some(ext) => ext.to_str().unwrap(),
     };
@@ -87,7 +87,7 @@ pub fn read_csv(filename: &str, format: &CorpusFormat) -> Vec<(String, String)> 
         for i in 0..skip {
             buf_reader
                 .read_line(&mut temp)
-                .expect(&format!("Reached EOF after skipping {} lines!", i));
+                .unwrap_or_else(|_| panic!("Reached EOF after skipping {} lines!", i));
         }
     }
     let buf_reader: Box<dyn Read> = match extension {
@@ -100,7 +100,7 @@ pub fn read_csv(filename: &str, format: &CorpusFormat) -> Vec<(String, String)> 
     let label_format_pattern = format
         .label_format_pattern
         .clone()
-        .unwrap_or(String::from("{}"));
+        .unwrap_or_else(|| String::from("{}"));
 
     ReaderBuilder::new()
         .comment(
@@ -185,7 +185,7 @@ fn _push_slice(
     if slice.len() > 1
         || slice.len() == 1 && !SPLIT_PATTERN.contains(&slice.chars().next().unwrap())
     {
-        offsets.push((last.clone(), idx.clone() + 1));
+        offsets.push((last, idx + 1));
         slices.push(String::from(slice));
     }
 }
@@ -201,14 +201,11 @@ pub fn parse_files(
         Some(format) => format.clone(),
     };
 
-    let filter_list: HashSet<String> = filter_list.map_or_else(
-        || HashSet::new(),
-        |list| {
-            list.iter()
-                .map(|s| s.to_lowercase())
-                .collect::<HashSet<String>>()
-        },
-    );
+    let filter_list: HashSet<String> = filter_list.map_or_else(HashSet::new, |list| {
+        list.iter()
+            .map(|s| s.to_lowercase())
+            .collect::<HashSet<String>>()
+    });
     files
         .par_iter()
         .flat_map_iter(|file| {
@@ -219,7 +216,7 @@ pub fn parse_files(
             pairs
         })
         .filter(|(search_term, _)| {
-            filter_list.len() == 0 || !filter_list.contains(&search_term.to_lowercase())
+            filter_list.is_empty() || !filter_list.contains(&search_term.to_lowercase())
         })
         .collect::<Vec<(String, String)>>()
 }
@@ -231,19 +228,6 @@ pub struct Tokenizer {
 }
 
 impl Tokenizer {
-    pub fn default() -> Tokenizer {
-        Tokenizer {
-            normalizer: NormalizerWrapper::Sequence(NormalizerSequence::new(vec![
-                NormalizerWrapper::Lowercase(Lowercase),
-                NormalizerWrapper::NFKC(NFKC::default()),
-            ])),
-            pre_tokenizer: PreTokenizerWrapper::Sequence(PreTokenizerSequence::new(vec![
-                PreTokenizerWrapper::Punctuation(Punctuation::new(SplitDelimiterBehavior::Removed)),
-                PreTokenizerWrapper::Whitespace(Whitespace::default()),
-            ])),
-        }
-    }
-
     pub fn tokenize(&self, string: &str) -> (Vec<String>, Vec<(usize, usize)>) {
         let mut string = PreTokenizedString::from(string);
         string
@@ -279,6 +263,21 @@ impl Tokenizer {
     }
 }
 
+impl Default for Tokenizer {
+    fn default() -> Tokenizer {
+        Tokenizer {
+            normalizer: NormalizerWrapper::Sequence(NormalizerSequence::new(vec![
+                NormalizerWrapper::Lowercase(Lowercase),
+                NormalizerWrapper::NFKC(NFKC::default()),
+            ])),
+            pre_tokenizer: PreTokenizerWrapper::Sequence(PreTokenizerSequence::new(vec![
+                PreTokenizerWrapper::Punctuation(Punctuation::new(SplitDelimiterBehavior::Removed)),
+                PreTokenizerWrapper::Whitespace(Whitespace::default()),
+            ])),
+        }
+    }
+}
+
 pub fn create_skip_grams(
     items: Vec<Vec<String>>,
     max_skips: i32,
@@ -302,14 +301,14 @@ pub fn create_skip_grams(
             max_skips - 1,
             min_length,
         ));
-        return deleted;
+        deleted
     } else {
-        return items;
+        items
     }
 }
 
 pub fn parse_optional<I: FromStr>(string: &Option<String>) -> Option<I> {
     string
         .as_ref()
-        .map_or(None, |s| s.parse::<I>().map_or(None, |val| Some(val)))
+        .and_then(|s| s.parse::<I>().map_or(None, |val| Some(val)))
 }

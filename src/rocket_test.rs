@@ -2,7 +2,7 @@ use std::collections::vec_deque::VecDeque;
 
 use rocket::http::{Accept, ContentType, Status};
 use rocket::local::blocking::Client;
-use rocket::serde::{Deserialize, Serialize, uuid::Uuid};
+use rocket::serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
@@ -14,7 +14,11 @@ struct Request {
 
 impl Request {
     fn new(text: impl Into<String>) -> Self {
-        Request { text: text.into(), max_len: None, result_selection: None }
+        Request {
+            text: text.into(),
+            max_len: None,
+            result_selection: None,
+        }
     }
 }
 
@@ -26,7 +30,7 @@ fn json_tag() {
 Dieser Ausflug dürfte besonders interessant werden, weil sich hier große Brutkolonien von Puffinus p. puffinus und verschiedener Alcidae befinden.
 Auch Thalassidroma pelagica dürfte hier angetroffen werden.
 Bei günstigem Wetter ist ferner der Besuch einer Brutkolonie von Sula bassana vorgesehen.");
-    let res = client.post("/tag").json(&message).dispatch();
+    let res = client.post("/v1/process").json(&message).dispatch();
     assert_eq!(res.status(), Status::Ok);
     println!("{:?}", res.body())
 }

@@ -1,6 +1,4 @@
-use std::collections::vec_deque::VecDeque;
-
-use rocket::http::{Accept, ContentType, Status};
+use rocket::http::Status;
 use rocket::local::blocking::Client;
 use rocket::serde::{Deserialize, Serialize};
 
@@ -34,40 +32,3 @@ Bei günstigem Wetter ist ferner der Besuch einer Brutkolonie von Sula bassana v
     assert_eq!(res.status(), Status::Ok);
     println!("{:?}", res.body())
 }
-
-// #[test]
-// fn json_bad_get_put() {
-//     let client = Client::tracked(super::rocket()).unwrap();
-//
-//     // Try to get a message with an ID that doesn't exist.
-//     let res = client.get("/json/99").header(ContentType::JSON).dispatch();
-//     assert_eq!(res.status(), Status::NotFound);
-//
-//     let body = res.into_string().unwrap();
-//     assert!(body.contains("error"));
-//     assert!(body.contains("Resource was not found."));
-//
-//     // Try to get a message with an invalid ID.
-//     let res = client.get("/json/hi").header(ContentType::JSON).dispatch();
-//     assert_eq!(res.status(), Status::NotFound);
-//     assert!(res.into_string().unwrap().contains("error"));
-//
-//     // Try to put a message without a proper body.
-//     let res = client.put("/json/80").header(ContentType::JSON).dispatch();
-//     assert_eq!(res.status(), Status::BadRequest);
-//
-//     // Try to put a message with a semantically invalid body.
-//     let res = client.put("/json/0")
-//         .header(ContentType::JSON)
-//         .body(r#"{ "dogs?": "love'em!" }"#)
-//         .dispatch();
-//
-//     assert_eq!(res.status(), Status::UnprocessableEntity);
-//
-//     // Try to put a message for an ID that doesn't exist.
-//     let res = client.put("/json/80")
-//         .json(&Message::new("hi"))
-//         .dispatch();
-//
-//     assert_eq!(res.status(), Status::NotFound);
-// }

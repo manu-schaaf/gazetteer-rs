@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
@@ -18,7 +18,7 @@ pub enum ResultSelection {
     LastPreferFull,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum MatchType {
     None,
     Full,
@@ -68,17 +68,11 @@ impl Display for MatchType {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Match {
     pub match_type: MatchType,
     pub match_string: String,
     pub match_label: String,
-}
-
-impl Hash for Match {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.match_label.hash(state);
-    }
 }
 
 impl Ord for Match {
@@ -469,4 +463,3 @@ mod test {
         assert_eq!(match_labels, vec!["uri:example", "uri:phrase"]);
     }
 }
-

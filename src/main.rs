@@ -6,7 +6,6 @@ extern crate rocket;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
-use std::str::FromStr;
 
 use clap::{arg, command, Command};
 use itertools::Itertools;
@@ -20,13 +19,13 @@ use rocket::fs::{FileServer, TempFile};
 #[cfg(feature = "gui")]
 use rocket::http::Status;
 use rocket::serde::json::Json;
-use rocket::{Request, State};
+use rocket::State;
 #[cfg(feature = "gui")]
 use rocket_dyn_templates::{context, Template};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use gazetteer::tree::{HashMapSearchTree, Match, ResultSelection};
+use gazetteer::tree::{HashMapSearchTree, ResultSelection};
 use gazetteer::util::{parse_optional, read_lines, CorpusFormat};
 
 #[cfg(test)]

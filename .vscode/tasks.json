@@ -7,6 +7,11 @@
             "label": "lazygit",
             "type": "shell",
             "command": "lazygit"
-        }
+        },
+        {
+            "label": "bacon",
+            "type": "shell",
+            "command": "bacon"
+        },
     ]
 }

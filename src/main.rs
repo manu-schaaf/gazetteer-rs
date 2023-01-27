@@ -1,27 +1,27 @@
 #![feature(is_some_and)]
 
-#[macro_use]
-extern crate rocket;
-
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
+use std::sync::Arc;
 
 use clap::{arg, command, Command};
 use itertools::Itertools;
-#[cfg(feature = "gui")]
-use rocket::form;
-#[cfg(feature = "gui")]
-use rocket::form::{Context, Contextual, Error, Form, FromForm};
-use rocket::fs::NamedFile;
-#[cfg(feature = "gui")]
-use rocket::fs::{FileServer, TempFile};
-#[cfg(feature = "gui")]
-use rocket::http::Status;
-use rocket::serde::json::Json;
-use rocket::State;
-#[cfg(feature = "gui")]
-use rocket_dyn_templates::{context, Template};
+
+// #[cfg(feature = "gui")]
+// use rocket::form;
+// #[cfg(feature = "gui")]
+// use rocket::form::{Context, Contextual, Error, Form, FromForm};
+// #[cfg(feature = "gui")]
+// use rocket::fs::{FileServer, TempFile};
+// #[cfg(feature = "gui")]
+// use rocket::http::Status;
+// #[cfg(feature = "gui")]
+// use rocket_dyn_templates::{context, Template};
+
+use actix_files::NamedFile;
+use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder, Result};
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -36,6 +36,12 @@ const DEFAULT_GENERATE_SKIP_GRAMS: bool = false;
 const DEFAULT_SKIP_GRAM_MAX_SKIPS: i32 = 2;
 const DEFAULT_SKIP_GRAM_MIN_LENGTH: i32 = 2;
 
+use actix_web::middleware::Logger;
+
+struct AppState {
+    tree: HashMapSearchTree,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct ProcessRequest<'r> {
     text: Cow<'r, str>,
@@ -43,14 +49,17 @@ struct ProcessRequest<'r> {
     result_selection: Option<ResultSelection>,
 }
 
-#[get("/v1/communication_layer")]
-async fn v1_communication_layer() -> Option<NamedFile> {
-    NamedFile::open("communication_layer.lua").await.ok()
+// #[get("/v1/communication_layer")]
+async fn v1_communication_layer() -> Result<NamedFile> {
+    Ok(NamedFile::open_async("communication_layer.lua").await?)
 }
 
-#[post("/v1/process", data = "<request>")]
-async fn v1_process(request: Json<ProcessRequest<'_>>, tree: &State<HashMapSearchTree>) -> Value {
-    let results = tree.search(
+// #[post("/v1/process")]
+async fn v1_process(
+    request: web::Json<ProcessRequest<'_>>,
+    state: web::Data<Arc<AppState>>,
+) -> HttpResponse {
+    let results = state.get_ref().tree.search(
         &request.text,
         parse_optional::<usize>(&request.max_len),
         Option::from(&request.result_selection),
@@ -74,7 +83,7 @@ async fn v1_process(request: Json<ProcessRequest<'_>>, tree: &State<HashMapSearc
             })
         })
         .collect::<Vec<Value>>();
-    json!(results)
+    HttpResponse::Ok().json(results)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -175,13 +184,34 @@ fn parse_args_and_build_tree() -> HashMapSearchTree {
 }
 
 #[cfg(not(feature = "gui"))]
-#[launch]
-fn rocket() -> _ {
-    let tree: HashMapSearchTree = parse_args_and_build_tree();
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
 
-    rocket::build()
-        .mount("/", routes![v1_process, v1_communication_layer])
-        .manage(tree)
+    let state: Arc<AppState> = Arc::new(AppState {
+        tree: parse_args_and_build_tree(),
+    });
+    let data: web::Data<Arc<AppState>> = web::Data::new(state);
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(data.clone())
+            .wrap(actix_web::middleware::Logger::default()) // enable logger
+            // .service(web::scope("").wrap(error_handlers()))
+            .service(
+                web::resource("/v1/communication_layer")
+                    .route(web::get().to(v1_communication_layer)),
+            )
+            .service(web::resource("/v1/process").route(web::post().to(v1_process)))
+    })
+    .bind(("127.0.0.1", 9417))?
+    .workers(8)
+    .run()
+    .await
+
+    // rocket::build()
+    //     .mount("/", routes![v1_process, v1_communication_layer])
+    //     .manage(tree)
 }
 
 #[cfg(feature = "gui")]

@@ -6,12 +6,11 @@ use std::hash::Hash;
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use rayon::prelude::*;
-use rocket::FromFormField;
 use serde::{Deserialize, Serialize};
 
 use crate::util::{create_skip_grams, get_files, parse_files, CorpusFormat, Tokenizer};
 
-#[derive(Debug, Serialize, Deserialize, FromFormField)]
+#[derive(Debug, Serialize, Deserialize)]  // FIXME
 pub enum ResultSelection {
     All,
     Last,

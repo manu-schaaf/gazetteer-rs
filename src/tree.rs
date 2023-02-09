@@ -1,5 +1,6 @@
+use imbl::HashMap;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 
@@ -10,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::util::{create_skip_grams, get_files, parse_files, CorpusFormat, Tokenizer};
 
-#[derive(Debug, Serialize, Deserialize)]  // FIXME
+#[derive(Debug, Serialize, Deserialize)] // FIXME
 pub enum ResultSelection {
     All,
     Last,

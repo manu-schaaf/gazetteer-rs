@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
+use std::sync::Arc;
 
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
@@ -10,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::util::{create_skip_grams, get_files, parse_files, CorpusFormat, Tokenizer};
 
-#[derive(Debug, Serialize, Deserialize)]  // FIXME
+#[derive(Debug, Serialize, Deserialize)] // FIXME
 pub enum ResultSelection {
     All,
     Last,
@@ -70,8 +71,8 @@ impl Display for MatchType {
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Match {
     pub match_type: MatchType,
-    pub match_string: String,
-    pub match_label: String,
+    pub match_string: Arc<String>,
+    pub match_label: Arc<String>,
 }
 
 impl Ord for Match {
@@ -114,6 +115,8 @@ impl Default for HashMapSearchTree {
         }
     }
 }
+type EntryType = (Vec<String>, Arc<String>, Arc<String>);
+
 impl HashMapSearchTree {
     pub fn load_file(
         &mut self,
@@ -156,11 +159,13 @@ impl HashMapSearchTree {
         let search_terms: Vec<&str> = entries.iter().map(|line| line.0.as_str()).collect();
         let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> =
             self.tokenize_batch(search_terms.as_slice());
-        let entries: Vec<(Vec<String>, String, String)> = segmented
+        let entries: Vec<EntryType> = segmented
             .into_iter()
             .zip(entries.into_iter())
-            .map(|(segments, (search_term, label))| (segments.0, search_term, label))
-            .collect::<Vec<(Vec<String>, String, String)>>();
+            .map(|(segments, (search_term, label))| {
+                (segments.0, Arc::from(search_term), Arc::from(label))
+            })
+            .collect();
 
         self.load_entries(&entries);
 
@@ -173,7 +178,7 @@ impl HashMapSearchTree {
         }
     }
 
-    pub(crate) fn load_entries(&mut self, entries: &Vec<(Vec<String>, String, String)>) {
+    pub(crate) fn load_entries(&mut self, entries: &Vec<EntryType>) {
         let pb = ProgressBar::new(entries.len() as u64);
         pb.set_style(
             ProgressStyle::with_template("Loading Entries {bar:40} {pos}/{len} {msg}").unwrap(),
@@ -182,8 +187,8 @@ impl HashMapSearchTree {
         for (segments, search_term, label) in entries {
             self.insert(
                 segments.clone(),
-                String::from(search_term),
-                String::from(label),
+                search_term.clone(),
+                label.clone(),
                 MatchType::Full,
             );
             pb.inc(1)
@@ -194,8 +199,8 @@ impl HashMapSearchTree {
     pub fn insert(
         &mut self,
         segments: Vec<String>,
-        match_string: String,
-        match_label: String,
+        match_string: Arc<String>,
+        match_label: Arc<String>,
         match_type: MatchType,
     ) {
         if segments.len() > self.tree_depth {
@@ -225,12 +230,12 @@ impl HashMapSearchTree {
 
     pub(crate) fn generate_skip_grams(
         &mut self,
-        lines: &Vec<(Vec<String>, String, String)>,
+        lines: &Vec<EntryType>,
         min_length: i32,
         max_skips: i32,
     ) {
         let filtered = lines
-            .par_iter()
+            .iter()
             .filter(|(segments, _, _)| segments.len() > min_length as usize)
             .collect::<Vec<_>>();
 
@@ -245,11 +250,11 @@ impl HashMapSearchTree {
             let mut deletes = create_skip_grams(vec![segments.clone()], max_skips, min_length);
             deletes.sort();
             deletes.dedup();
-            for skip_gram in deletes {
+            for skip_gram in deletes.into_iter() {
                 self.insert(
-                    skip_gram.clone(),
-                    String::from(search_term),
-                    String::from(label),
+                    skip_gram,
+                    search_term.clone(),
+                    label.clone(),
                     MatchType::SkipGram,
                 );
                 counter += 1;
@@ -259,9 +264,9 @@ impl HashMapSearchTree {
         pb.finish_with_message(format!("Generated {} skip-grams", counter));
     }
 
-    pub(crate) fn generate_abbreviations(&mut self, lines: &Vec<(Vec<String>, String, String)>) {
+    pub(crate) fn generate_abbreviations(&mut self, lines: &Vec<EntryType>) {
         let filtered = lines
-            .par_iter()
+            .iter()
             .filter(|(segments, _, _)| segments.len() > 1)
             .collect::<Vec<_>>();
 
@@ -287,8 +292,8 @@ impl HashMapSearchTree {
 
                 self.insert(
                     abbrv.clone(),
-                    String::from(search_term),
-                    String::from(label),
+                    search_term.clone(),
+                    label.clone(),
                     MatchType::Abbreviated,
                 );
                 counter += 1;
@@ -413,7 +418,7 @@ impl HashMapSearchTree {
 mod test {
     use itertools::Itertools;
 
-    use crate::tree::{HashMapSearchTree, ResultSelection};
+    use super::*;
 
     #[test]
     fn test_sample() {
@@ -430,26 +435,27 @@ mod test {
         let results = tree.search("An xyz", Some(3), None);
         assert!(results.is_empty());
 
-        let results = tree.search(&entries[0].0, Some(3), Some(&ResultSelection::Last));
+        let results: Vec<(String, Vec<crate::tree::Match>, usize, usize)> =
+            tree.search(&entries[0].0, Some(3), Some(&ResultSelection::Last));
         println!("{:?}", results);
         let results = results.first().unwrap();
         let results = &results.1;
         assert_eq!(results.len(), 1);
-        assert_eq!(&results[0].match_label, &entries[0].1);
+        assert_eq!(&*results[0].match_label, &entries[0].1);
 
         let results = tree.search(&entries[1].0, Some(3), Some(&ResultSelection::Last));
         println!("{:?}", results);
         let results = results.first().unwrap();
         let matches = &results.1;
         assert_eq!(matches.len(), 1);
-        assert_eq!(&matches[0].match_label, &entries[1].1);
+        assert_eq!(&*matches[0].match_label, &entries[1].1);
 
         let results = tree.search(&entries[1].0, Some(2), Some(&ResultSelection::Last));
         println!("{:?}", results);
         let results = results.first().unwrap();
         let matches = &results.1;
         assert_eq!(matches.len(), 1);
-        assert_eq!(&matches[0].match_label, &entries[0].1);
+        assert_eq!(&*matches[0].match_label, &entries[0].1);
 
         let results = tree.search(&entries[1].0, Some(3), Some(&ResultSelection::All));
         println!("{:?}", results);
@@ -457,7 +463,7 @@ mod test {
         assert_eq!(matches.len(), 2);
         let match_labels: Vec<String> = matches
             .into_iter()
-            .map(|mtch| mtch.match_label.clone())
+            .map(|mtch| (*mtch.match_label).clone())
             .sorted()
             .collect();
         assert_eq!(match_labels, vec!["uri:example", "uri:phrase"]);

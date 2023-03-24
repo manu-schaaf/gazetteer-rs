@@ -468,4 +468,57 @@ mod test {
             .collect();
         assert_eq!(match_labels, vec!["uri:example", "uri:phrase"]);
     }
+
+    #[test]
+    fn test_skip_grams() {
+        let mut tree = HashMapSearchTree::default();
+        let entries: Vec<(String, String)> = vec![
+            ("An example".to_string(), "uri:example".to_string()),
+            ("An example phrase".to_string(), "uri:phrase".to_string()),
+            ("Another example A".to_string(), "uri:other".to_string()),
+        ];
+        tree.load(entries.clone(), true, 2, 2, false);
+        let tree = tree;
+
+        println!("{:?}", tree.search_map);
+
+        let results = tree.search("An xyz", Some(3), None);
+        assert!(results.is_empty());
+
+        let results = tree.search("An A A xyz ", Some(3), None);
+        assert!(results.is_empty());
+
+        let results: Vec<(String, Vec<crate::tree::Match>, usize, usize)> =
+            tree.search(&entries[0].0, Some(3), Some(&ResultSelection::Last));
+        println!("{:?}", results);
+        let results = results.first().unwrap();
+        let results = &results.1;
+        assert_eq!(results.len(), 2);
+        assert_eq!(&*results[0].match_label, &entries[0].1);
+
+        let results = tree.search(&entries[1].0, Some(3), Some(&ResultSelection::Last));
+        println!("{:?}", results);
+        let results = results.first().unwrap();
+        let matches = &results.1;
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&*matches[0].match_label, &entries[1].1);
+
+        let results = tree.search(&entries[1].0, Some(2), Some(&ResultSelection::Last));
+        println!("{:?}", results);
+        let results = results.first().unwrap();
+        let matches = &results.1;
+        assert_eq!(matches.len(), 2);
+        assert_eq!(&*matches[0].match_label, &entries[0].1);
+
+        let results = tree.search(&entries[1].0, Some(3), Some(&ResultSelection::All));
+        println!("{:?}", results);
+        let matches: Vec<_> = results.into_iter().flat_map(|r| r.1).collect();
+        assert_eq!(matches.len(), 3);
+        let match_labels: Vec<String> = matches
+            .into_iter()
+            .map(|mtch| (*mtch.match_label).clone())
+            .sorted()
+            .collect();
+        assert_eq!(match_labels, vec!["uri:example", "uri:phrase", "uri:phrase"]);
+    }
 }

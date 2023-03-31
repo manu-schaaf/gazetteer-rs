@@ -1,5 +1,3 @@
-#![feature(is_some_and)]
-
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
@@ -20,7 +18,7 @@ use itertools::Itertools;
 // use rocket_dyn_templates::{context, Template};
 
 use actix_files::NamedFile;
-use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder, Result};
+use actix_web::{web, App, HttpResponse, HttpServer, Result};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -28,15 +26,15 @@ use serde_json::{json, Value};
 use gazetteer::tree::{HashMapSearchTree, ResultSelection};
 use gazetteer::util::{parse_optional, read_lines, CorpusFormat};
 
-#[cfg(test)]
-mod rocket_test;
-
 const DEFAULT_GENERATE_ABBRV: bool = false;
 const DEFAULT_GENERATE_SKIP_GRAMS: bool = false;
 const DEFAULT_SKIP_GRAM_MAX_SKIPS: i32 = 2;
 const DEFAULT_SKIP_GRAM_MIN_LENGTH: i32 = 2;
 
-use actix_web::middleware::Logger;
+#[cfg(debug)]
+const LOG_LEVEL: &str = "debug";
+#[cfg(not(debug))]
+const LOG_LEVEL: &str = "warn";
 
 struct AppState {
     tree: HashMapSearchTree,
@@ -186,7 +184,7 @@ fn parse_args_and_build_tree() -> HashMapSearchTree {
 #[cfg(not(feature = "gui"))]
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or(LOG_LEVEL));
 
     let state: Arc<AppState> = Arc::new(AppState {
         tree: parse_args_and_build_tree(),
@@ -208,14 +206,10 @@ async fn main() -> std::io::Result<()> {
     .workers(8)
     .run()
     .await
-
-    // rocket::build()
-    //     .mount("/", routes![v1_process, v1_communication_layer])
-    //     .manage(tree)
 }
 
 #[cfg(feature = "gui")]
-#[derive(Debug, FromForm)]
+#[derive(Debug)]
 struct Submit<'v> {
     text: &'v str,
     file: TempFile<'v>,

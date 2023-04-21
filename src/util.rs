@@ -5,6 +5,8 @@ use std::io::{BufRead, Read};
 use std::path::Path;
 use std::str::FromStr;
 
+use anyhow::anyhow;
+use anyhow::Context;
 use csv::{ReaderBuilder, Trim};
 use flate2::bufread::GzDecoder;
 use glob::glob;
@@ -52,6 +54,95 @@ pub struct CorpusFormat {
     pub label_format_pattern: Option<String>,
 }
 
+pub struct RobustCorpusFormat {
+    /// The comment character. Defaults to b'#'.
+    pub comment: Option<u8>,
+    /// The delimiter character. Defaults to b'\t'.
+    pub delimiter: u8,
+    /// If true, quotes are escaped as double quotes instead of backslash escaped.
+    /// Defaults to false.
+    pub double_quote: bool,
+    /// If true, the number of columns can vary. Defaults to false.
+    pub flexible: bool,
+    /// If true, the first line of the input will be treated as a header. Defaults to false.
+    pub has_header: bool,
+    /// The quoting character. Defaults to b'"'
+    pub quote: u8,
+    /// If disabled, quotes will not be treated differently. Enabled by default.
+    pub quoting: bool,
+    /// If given, skips the first n-lines of a document, i.e. to skip metadata.
+    pub skip_lines: usize,
+    /// The column index of the search term in the input table. Defaults to 0.
+    pub search_term_column_idx: usize,
+    /// The column index of the label in the input table. Defaults to 1.
+    pub label_column_idx: usize,
+    /// If given, will insert the label into the format string by replacing the pattern string with
+    /// the label.
+    pub label_format_string: Option<String>,
+    /// The label pattern string, i.e. the part of the label_format_string that is replaced with
+    /// the label. Defaults to '{}'.
+    pub label_format_pattern: String,
+}
+
+impl Default for RobustCorpusFormat {
+    fn default() -> Self {
+        RobustCorpusFormat {
+            comment: Some(b'#'),
+            delimiter: b'\t',
+            double_quote: false,
+            flexible: false,
+            has_header: false,
+            quote: b'"',
+            quoting: true,
+            skip_lines: 0,
+            search_term_column_idx: 0,
+            label_column_idx: 1,
+            label_format_string: None,
+            label_format_pattern: String::from("{}"),
+        }
+    }
+}
+
+impl TryFrom<CorpusFormat> for RobustCorpusFormat {
+    type Error = anyhow::Error;
+
+    fn try_from(format: CorpusFormat) -> Result<Self, Self::Error> {
+        let default = RobustCorpusFormat::default();
+        let robust_corpus_format = RobustCorpusFormat {
+            comment: format.comment.map_or(default.comment, |s| s.bytes().next()),
+            delimiter: format
+                .delimiter
+                .map_or(Some(b'\t'), |s| s.bytes().next())
+                .context("Could not get delimiter character")?,
+            double_quote: format.double_quote.unwrap_or(default.double_quote),
+            flexible: format.flexible.unwrap_or(default.flexible),
+            has_header: format.has_header.unwrap_or(default.has_header),
+            quote: format
+                .quote
+                .map_or(Some(b'"'), |s| s.bytes().next())
+                .context("Could not get quote character")?,
+            quoting: format.quoting.unwrap_or(false),
+            skip_lines: format.skip_lines.unwrap_or(default.skip_lines),
+            search_term_column_idx: format
+                .search_term_column_idx
+                .unwrap_or(default.search_term_column_idx),
+            label_column_idx: format.label_column_idx.unwrap_or(default.label_column_idx),
+            label_format_string: format.label_format_string,
+            label_format_pattern: format
+                .label_format_pattern
+                .unwrap_or(default.label_format_pattern),
+        };
+        if let Some(label_format_string) = &robust_corpus_format.label_format_string {
+            if !label_format_string.contains(&robust_corpus_format.label_format_pattern) {
+                return Err(anyhow!(
+                    "The label format string must contain the label format pattern"
+                ));
+            }
+        }
+        Ok(robust_corpus_format)
+    }
+}
+
 pub fn read_lines(filename: &str) -> Vec<String> {
     let extension = match Path::new(filename).extension() {
         None => "",
@@ -74,20 +165,24 @@ pub fn read_lines(filename: &str) -> Vec<String> {
     }
 }
 
-pub fn read_csv(filename: &str, format: &CorpusFormat) -> Vec<(String, String)> {
+pub fn read_csv(filename: &str, format: &CorpusFormat) -> anyhow::Result<Vec<(String, String)>> {
     let extension = match Path::new(filename).extension() {
         None => "",
         Some(ext) => ext.to_str().unwrap(),
     };
-    let file = File::open(Path::new(filename)).expect("Could not open file");
+    let file = File::open(Path::new(filename)).context("Could not open file")?;
 
     let mut buf_reader = io::BufReader::new(file);
-    if let Some(skip) = format.skip_lines {
+
+    let format =
+        RobustCorpusFormat::try_from(format.clone()).context("Failed to convert corpus format")?;
+
+    if format.skip_lines > 0 {
         let mut temp = String::new();
-        for i in 0..skip {
+        for i in 0..format.skip_lines {
             buf_reader
                 .read_line(&mut temp)
-                .unwrap_or_else(|_| panic!("Reached EOF after skipping {} lines!", i));
+                .context(format!("Reached EOF after skipping {i} lines"))?;
         }
     }
     let buf_reader: Box<dyn Read> = match extension {
@@ -95,58 +190,47 @@ pub fn read_csv(filename: &str, format: &CorpusFormat) -> Vec<(String, String)> 
         _ => Box::new(buf_reader),
     };
 
-    let search_term_column_idx = format.search_term_column_idx.unwrap_or(0);
-    let label_column_idx = format.label_column_idx.unwrap_or(1);
-    let label_format_pattern = format
-        .label_format_pattern
-        .clone()
-        .unwrap_or_else(|| String::from("{}"));
+    let search_term_column_idx = format.search_term_column_idx;
+    let label_column_idx = format.label_column_idx;
+    let label_format_pattern = format.label_format_pattern;
 
-    ReaderBuilder::new()
-        .comment(
-            format
-                .comment
-                .clone()
-                .map_or(Some(b'#'), |s| s.bytes().next()),
-        )
-        .delimiter(
-            format
-                .delimiter
-                .clone()
-                .map_or(b'\t', |s| s.bytes().next().unwrap()),
-        )
-        .double_quote(format.double_quote.unwrap_or(false))
-        .flexible(format.flexible.unwrap_or(false))
-        .has_headers(format.has_header.unwrap_or(false))
-        .quote(
-            format
-                .quote
-                .clone()
-                .map_or(b'"', |s| s.bytes().next().unwrap()),
-        )
-        .quoting(format.quoting.unwrap_or(false))
+    let reader = ReaderBuilder::new()
+        .comment(format.comment)
+        .delimiter(format.delimiter)
+        .double_quote(format.double_quote)
+        .flexible(format.flexible)
+        .has_headers(format.has_header)
+        .quote(format.quote)
+        .quoting(format.quoting)
         .trim(Trim::All)
         .from_reader(buf_reader)
         .records()
-        .filter_map(|row| row.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|row| !row.is_empty())
-        .map(|row| match &format.label_format_string {
-            None => (
-                String::from(&row[search_term_column_idx]),
-                String::from(&row[label_column_idx]),
-            ),
-            Some(format_string) => (
-                String::from(&row[search_term_column_idx]),
-                format_string.replace(&label_format_pattern, &row[label_column_idx]),
-            ),
+        .map(|row| {
+            format.label_format_string.as_ref().map_or_else(
+                || {
+                    (
+                        String::from(&row[search_term_column_idx]),
+                        String::from(&row[label_column_idx]),
+                    )
+                },
+                |format_string| {
+                    (
+                        String::from(&row[search_term_column_idx]),
+                        format_string.replace(&label_format_pattern, &row[label_column_idx]),
+                    )
+                },
+            )
         })
-        .collect::<Vec<(String, String)>>()
+        .collect::<Vec<(String, String)>>();
+    Ok(reader)
 }
 
+#[must_use]
 pub fn get_files(root_path: &str) -> Vec<String> {
     let mut files = glob(root_path)
         .expect("Failed to read glob pattern")
-        .into_iter()
         .filter_map(|file| file.ok())
         .filter(|file| file.metadata().unwrap().is_file())
         .map(|file| String::from(file.as_path().to_str().unwrap()))
@@ -157,7 +241,8 @@ pub fn get_files(root_path: &str) -> Vec<String> {
 
 pub const SPLIT_PATTERN: &[char; 10] = &[' ', '.', ',', ':', ';', '-', '_', '"', '(', ')'];
 
-pub fn split_with_indices(s: String) -> (Vec<String>, Vec<(usize, usize)>) {
+#[must_use]
+pub fn split_with_indices(s: &str) -> (Vec<String>, Vec<(usize, usize)>) {
     let indices = s.match_indices(SPLIT_PATTERN).collect::<Vec<_>>();
 
     let mut last = 0;
@@ -191,34 +276,38 @@ fn _push_slice(
 }
 
 pub fn parse_files(
-    files: Vec<String>,
+    files: &Vec<String>,
     pb: Option<&ProgressBar>,
     format: &Option<CorpusFormat>,
-    filter_list: Option<&Vec<String>>,
-) -> Vec<(String, String)> {
+    filter_list: &Option<Vec<String>>,
+) -> anyhow::Result<Vec<(String, String)>> {
     let format: CorpusFormat = match format {
         None => CorpusFormat::default(),
         Some(format) => format.clone(),
     };
 
-    let filter_list: HashSet<String> = filter_list.map_or_else(HashSet::new, |list| {
+    let filter_list: HashSet<String> = filter_list.clone().map_or_else(HashSet::new, |list| {
         list.iter()
             .map(|s| s.to_lowercase())
             .collect::<HashSet<String>>()
     });
-    files
+    let parsed_files: Result<Vec<Vec<(String, String)>>, anyhow::Error> = files
         .par_iter()
-        .flat_map_iter(|file| {
-            let pairs = read_csv(file, &format);
+        .map(|file| {
+            let pairs = read_csv(file, &format)?;
             if let Some(pb) = pb {
                 pb.inc(1);
             }
-            pairs
+            Ok(pairs)
         })
+        .collect();
+    Ok(parsed_files?
+        .into_iter()
+        .flatten()
         .filter(|(search_term, _)| {
             filter_list.is_empty() || !filter_list.contains(&search_term.to_lowercase())
         })
-        .collect::<Vec<(String, String)>>()
+        .collect::<Vec<(String, String)>>())
 }
 
 #[derive(Debug)]

@@ -20,6 +20,8 @@ use itertools::Itertools;
 use actix_files::NamedFile;
 use actix_web::{web, App, HttpResponse, HttpServer, Result};
 
+use anyhow::Context;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -47,12 +49,10 @@ struct ProcessRequest<'r> {
     result_selection: Option<ResultSelection>,
 }
 
-// #[get("/v1/communication_layer")]
 async fn v1_communication_layer() -> Result<NamedFile> {
     Ok(NamedFile::open_async("communication_layer.lua").await?)
 }
 
-// #[post("/v1/process")]
 async fn v1_process(
     request: web::Json<ProcessRequest<'_>>,
     state: web::Data<Arc<AppState>>,
@@ -112,21 +112,16 @@ fn cli() -> Command {
     ])
 }
 
-fn parse_args_and_build_tree() -> HashMapSearchTree {
+fn parse_args_and_build_tree() -> anyhow::Result<HashMapSearchTree> {
     let args = cli().get_matches();
-    let config_path: &String = args.get_one("config").expect("Error in arguments!");
+    let config_path: &String = args.get_one("config").context("Error in arguments!")?;
     let config: String =
-        std::fs::read_to_string(config_path).expect("Failed to load configuration.");
+        std::fs::read_to_string(config_path).context("Failed to load configuration.")?;
 
-    let config: Config = toml::from_str(&config).unwrap();
+    let config: Config = toml::from_str(&config).context("Failed to parse configuration TOML")?;
 
     let mut tree = HashMapSearchTree::default();
-    let lines = config.filter_path.map_or_else(Vec::new, |p| read_lines(&p));
-    let filter_list = if lines.is_empty() {
-        None
-    } else {
-        Option::from(&lines)
-    };
+    let default_filter_list = load_filter_list(config.filter_path);
 
     for corpus in config.corpora.values() {
         let path: &String = &corpus.path;
@@ -149,19 +144,19 @@ fn parse_args_and_build_tree() -> HashMapSearchTree {
                 .unwrap_or(DEFAULT_SKIP_GRAM_MAX_SKIPS)
         });
         let format = &corpus.format;
-        if let Some(_filter_path) = &corpus.filter_path {
-            let _lines: Vec<String> = read_lines(_filter_path);
-            let _filter_list = if _lines.is_empty() {
+        if let Some(filter_path) = &corpus.filter_path {
+            let lines: Vec<String> = read_lines(filter_path);
+            let filter_list = if lines.is_empty() {
                 None
             } else {
-                Option::from(&_lines)
+                Option::from(lines)
             };
             tree.load_file(
                 path,
                 generate_skip_grams,
                 skip_gram_min_length,
                 skip_gram_max_skips,
-                _filter_list,
+                &filter_list,
                 generate_abbrv,
                 format,
             );
@@ -171,23 +166,31 @@ fn parse_args_and_build_tree() -> HashMapSearchTree {
                 generate_skip_grams,
                 skip_gram_min_length,
                 skip_gram_max_skips,
-                filter_list,
+                &default_filter_list,
                 generate_abbrv,
                 format,
             );
         }
     }
     println!("Finished loading gazetteer.");
-    tree
+    Ok(tree)
 }
 
-#[cfg(not(feature = "gui"))]
+fn load_filter_list(filter_path: Option<String>) -> Option<Vec<String>> {
+    let lines = filter_path.map_or_else(Vec::new, |p| read_lines(&p));
+    if lines.is_empty() {
+        None
+    } else {
+        Option::from(lines)
+    }
+}
+
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> anyhow::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or(LOG_LEVEL));
 
     let state: Arc<AppState> = Arc::new(AppState {
-        tree: parse_args_and_build_tree(),
+        tree: parse_args_and_build_tree()?,
     });
     let data: web::Data<Arc<AppState>> = web::Data::new(state);
 
@@ -206,112 +209,5 @@ async fn main() -> std::io::Result<()> {
     .workers(8)
     .run()
     .await
-}
-
-#[cfg(feature = "gui")]
-#[derive(Debug)]
-struct Submit<'v> {
-    text: &'v str,
-    file: TempFile<'v>,
-    max_len: usize,
-    result_selection: ResultSelection,
-}
-
-#[cfg(feature = "gui")]
-fn file_or_text<'v>(text: &'v str, file: &TempFile) -> form::Result<'v, String> {
-    if !(text.len() > 1 || file.content_type().is_some_and(|t| t.is_text())) {
-        Err(Error::validation(
-            "You must either enter text or upload a file!",
-        ))?
-    } else if !text.is_empty() {
-        Ok(String::from(text))
-    } else {
-        Ok(read_lines(file.path().unwrap().to_str().unwrap()).join(""))
-    }
-}
-
-#[cfg(feature = "gui")]
-#[get("/")]
-fn index() -> Template {
-    Template::render("index", &Context::default())
-}
-
-#[cfg(feature = "gui")]
-#[post("/", data = "<form>")]
-fn submit<'r>(
-    mut form: Form<Contextual<'r, Submit<'r>>>,
-    tree: &State<HashMapSearchTree>,
-) -> (Status, Template) {
-    let template = match form.value {
-        Some(ref submission) => {
-            // println!("submission: {:#?}", submission);
-            match file_or_text(submission.text, &submission.file) {
-                Ok(text) => {
-                    let results = tree.search(
-                        &text,
-                        Option::from(submission.max_len),
-                        Option::from(&submission.result_selection),
-                    );
-                    // for result in results.iter() {
-                    //     println!("{:?} ({},{}) -> {:?}", result.0, result.2, result.2, result.1)
-                    // }
-                    Template::render(
-                        "success",
-                        context! {
-                            text: text,
-                            results: results,
-                        },
-                    )
-                }
-                Err(errs) => {
-                    for err in errs {
-                        form.context.push_error(err.with_name("file"));
-                    }
-                    Template::render("index", &form.context)
-                }
-            }
-        }
-        None => Template::render("index", &form.context),
-    };
-
-    (form.context.status(), template)
-}
-
-#[cfg(feature = "gui")]
-#[post("/search", format = "json", data = "<request>")]
-async fn search(request: Json<ProcessRequest<'_>>, tree: &State<HashMapSearchTree>) -> Value {
-    let results = tree.search(
-        &request.text,
-        parse_optional(&request.max_len),
-        Option::from(&request.result_selection),
-    );
-    json!({
-        "status": "ok",
-        "results": results
-    })
-}
-
-#[cfg(feature = "gui")]
-#[catch(500)]
-fn search_error() -> Value {
-    json!({
-        "status": "error",
-        "reason": "An error occurred during tree search."
-    })
-}
-
-#[cfg(feature = "gui")]
-#[launch]
-fn rocket() -> _ {
-    let tree: HashMapSearchTree = parse_args_and_build_tree();
-
-    rocket::build()
-        .mount(
-            "/",
-            routes![index, submit, search, v1_process, v1_communication_layer],
-        )
-        .register("/search", catchers![search_error])
-        .attach(Template::fairing())
-        .mount("/", FileServer::from("static"))
-        .manage(tree)
+    .map_err(anyhow::Error::from)
 }

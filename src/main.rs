@@ -205,7 +205,7 @@ async fn main() -> anyhow::Result<()> {
             )
             .service(web::resource("/v1/process").route(web::post().to(v1_process)))
     })
-    .bind(("127.0.0.1", 9417))?
+    .bind(("127.0.0.1", 9714))?
     .workers(8)
     .run()
     .await

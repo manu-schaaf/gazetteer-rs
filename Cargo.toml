@@ -4,7 +4,7 @@ version = "1.5.0"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.1.1", features = ["cargo"] }
+clap = { version = "4.1.1", features = ["cargo", "derive"] }
 csv = "*"
 glob = "0.3.0"
 indicatif = "0.17.1"

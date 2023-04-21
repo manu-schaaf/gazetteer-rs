@@ -1,21 +1,9 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::env;
 use std::sync::Arc;
 
-use clap::{arg, command, Command};
+use clap::{arg, Command, Parser};
 use itertools::Itertools;
-
-// #[cfg(feature = "gui")]
-// use rocket::form;
-// #[cfg(feature = "gui")]
-// use rocket::form::{Context, Contextual, Error, Form, FromForm};
-// #[cfg(feature = "gui")]
-// use rocket::fs::{FileServer, TempFile};
-// #[cfg(feature = "gui")]
-// use rocket::http::Status;
-// #[cfg(feature = "gui")]
-// use rocket_dyn_templates::{context, Template};
 
 use actix_files::NamedFile;
 use actix_web::{web, App, HttpResponse, HttpServer, Result};
@@ -105,16 +93,7 @@ struct Corpus {
     format: Option<CorpusFormat>,
 }
 
-fn cli() -> Command {
-    command!().args([
-        arg!(config: [CONFIG] "Path to the config file to use. Defaults to 'config.toml'.")
-            .default_value("config.toml"),
-    ])
-}
-
-fn parse_args_and_build_tree() -> anyhow::Result<HashMapSearchTree> {
-    let args = cli().get_matches();
-    let config_path: &String = args.get_one("config").context("Error in arguments!")?;
+fn parse_args_and_build_tree(config_path: &str) -> anyhow::Result<HashMapSearchTree> {
     let config: String =
         std::fs::read_to_string(config_path).context("Failed to load configuration.")?;
 
@@ -185,12 +164,27 @@ fn load_filter_list(filter_path: Option<String>) -> Option<Vec<String>> {
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long, default_value_t = String::from("config.toml"))]
+    config: String,
+    #[arg(short, long, default_value_t = String::from("0.0.0.0"))]
+    address: String,
+    #[arg(short, long, default_value_t = 9714)]
+    port: u16,
+    #[arg(short, long, default_value_t = 1)]
+    workers: usize,
+}
+
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+
     env_logger::init_from_env(env_logger::Env::new().default_filter_or(LOG_LEVEL));
 
     let state: Arc<AppState> = Arc::new(AppState {
-        tree: parse_args_and_build_tree()?,
+        tree: parse_args_and_build_tree(&args.config)?,
     });
     let data: web::Data<Arc<AppState>> = web::Data::new(state);
 
@@ -205,8 +199,8 @@ async fn main() -> anyhow::Result<()> {
             )
             .service(web::resource("/v1/process").route(web::post().to(v1_process)))
     })
-    .bind(("127.0.0.1", 9714))?
-    .workers(8)
+    .bind((args.address, args.port))?
+    .workers(args.workers)
     .run()
     .await
     .map_err(anyhow::Error::from)

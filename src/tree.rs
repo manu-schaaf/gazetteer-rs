@@ -410,9 +410,13 @@ mod test {
     #[test]
     fn test_sample() {
         let mut tree = HashMapSearchTree::default();
+        let an_example: String = "An example".to_string();
+        let an_example_phrase: String = "An example phrase".to_string();
+        let example: String = "Example".to_string();
         let entries: Vec<(String, String)> = vec![
-            ("An example".to_string(), "uri:example".to_string()),
-            ("An example phrase".to_string(), "uri:phrase".to_string()),
+            (an_example.clone(), "uri:example".to_string()),
+            (an_example_phrase.clone(), "uri:phrase".to_string()),
+            (example.clone(), "uri:single".to_string()),
         ];
         tree.load(entries.clone(), false, 0, 0, false);
         let tree = tree;
@@ -422,38 +426,47 @@ mod test {
         let results = tree.search("An xyz", Some(3), None);
         assert!(results.is_empty());
 
-        let results: Vec<(String, Vec<crate::tree::Match>, usize, usize)> =
-            tree.search(&entries[0].0, Some(3), Some(&ResultSelection::Last));
+        let results = tree.search(&an_example, Some(3), Some(&ResultSelection::Last));
         println!("{results:?}");
         let results = results.first().unwrap();
         let results = &results.1;
         assert_eq!(results.len(), 1);
         assert_eq!(&*results[0].match_label, &entries[0].1);
 
-        let results = tree.search(&entries[1].0, Some(3), Some(&ResultSelection::Last));
+        let results = tree.search(&an_example_phrase, Some(3), Some(&ResultSelection::Last));
         println!("{results:?}");
         let results = results.first().unwrap();
         let matches = &results.1;
         assert_eq!(matches.len(), 1);
         assert_eq!(&*matches[0].match_label, &entries[1].1);
 
-        let results = tree.search(&entries[1].0, Some(2), Some(&ResultSelection::Last));
+        let results = tree.search(&example, Some(3), None);
+        println!("{results:?}");
+        let results = results.first().unwrap();
+        let results = &results.1;
+        assert_eq!(results.len(), 1);
+        assert_eq!(&*results[0].match_label, &entries[2].1);
+
+        let results = tree.search(&an_example_phrase, Some(2), Some(&ResultSelection::Last));
         println!("{results:?}");
         let results = results.first().unwrap();
         let matches = &results.1;
         assert_eq!(matches.len(), 1);
         assert_eq!(&*matches[0].match_label, &entries[0].1);
 
-        let results = tree.search(&entries[1].0, Some(3), Some(&ResultSelection::All));
+        let results = tree.search(&an_example_phrase, Some(3), Some(&ResultSelection::All));
         println!("{results:?}");
         let matches: Vec<_> = results.into_iter().flat_map(|r| r.1).collect();
-        assert_eq!(matches.len(), 2);
+        assert_eq!(matches.len(), 3);
         let match_labels: Vec<String> = matches
             .into_iter()
             .map(|mtch| (*mtch.match_label).clone())
             .sorted()
             .collect();
-        assert_eq!(match_labels, vec!["uri:example", "uri:phrase"]);
+        assert_eq!(
+            match_labels,
+            vec!["uri:example", "uri:phrase", "uri:single"]
+        );
     }
 
     #[test]

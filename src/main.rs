@@ -2,8 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use clap::{arg, Command, Parser};
-use itertools::Itertools;
+use clap::{arg, Parser};
 
 use actix_files::NamedFile;
 use actix_web::{web, App, HttpResponse, HttpServer, Result};
@@ -53,17 +52,26 @@ async fn v1_process(
     let results: Vec<Value> = results
         .into_iter()
         .map(|(string, mtches, begin, end)| {
-            let match_labels = mtches.iter().map(|mtch| &mtch.match_label).join(" | ");
-            let match_types = mtches
-                .iter()
-                .map(|mtch| mtch.match_type.to_string())
-                .join(" | ");
-            let match_strings = mtches.iter().map(|mtch| &mtch.match_string).join(" | ");
+            let mut value: HashMap<(String, String), Vec<String>> = HashMap::new();
+            for mtch in mtches {
+                value
+                    .entry((mtch.match_string.to_string(), mtch.match_type.to_string()))
+                    .and_modify(|e| e.push(mtch.match_label.to_string()))
+                    .or_insert_with(|| vec![mtch.match_label.to_string()]);
+            }
+
+            let ((match_strings, match_types), match_labels): (
+                (Vec<String>, Vec<String>),
+                Vec<String>,
+            ) = value
+                .into_iter()
+                .map(|((s, t), l)| ((s, t), l.join(" ")))
+                .unzip();
             json!({
                 "string": string,
-                "match_labels": match_labels,
-                "match_types": match_types,
-                "match_strings": match_strings,
+                "match_labels": match_labels.join(" | "),
+                "match_types": match_types.join(" | "),
+                "match_strings": match_strings.join(" | "),
                 "begin": begin,
                 "end": end,
             })

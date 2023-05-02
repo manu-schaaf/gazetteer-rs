@@ -175,6 +175,9 @@ struct Args {
     port: u16,
     #[arg(short, long, default_value_t = 1)]
     workers: usize,
+    // #[arg(long, default_value_t = 536_870_912)]
+    #[arg(long, default_value_t = 16_777_216, help = "The request size limit")]
+    limit: usize,
 }
 
 #[actix_web::main]
@@ -182,6 +185,8 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     env_logger::init_from_env(env_logger::Env::new().default_filter_or(LOG_LEVEL));
+
+    let json_config = web::JsonConfig::default().limit(args.limit);
 
     let state: Arc<AppState> = Arc::new(AppState {
         tree: parse_args_and_build_tree(&args.config)?,
@@ -191,7 +196,10 @@ async fn main() -> anyhow::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(data.clone())
-            .wrap(actix_web::middleware::Logger::default()) // enable logger
+            .wrap(actix_web::middleware::Logger::default())
+            .wrap(actix_web::middleware::Compress::default())
+            .wrap(actix_web::middleware::DefaultHeaders::default())
+            .app_data(json_config.clone())
             // .service(web::scope("").wrap(error_handlers()))
             .service(
                 web::resource("/v1/communication_layer")

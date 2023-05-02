@@ -387,7 +387,7 @@ impl HashMapSearchTree {
         window: &Vec<String>,
     ) -> Result<Vec<(Vec<String>, &HashSet<Match>)>, String> {
         let mut results = Vec::new();
-        for i in 1..window.len() {
+        for i in 0..window.len() {
             let sub_window = window[0..=i].to_vec();
             if let Some(result) = self.search_map.get(&sub_window) {
                 results.push((sub_window, result));

@@ -23,7 +23,7 @@ const DEFAULT_SKIP_GRAM_MIN_LENGTH: i32 = 2;
 #[cfg(debug)]
 const LOG_LEVEL: &str = "debug";
 #[cfg(not(debug))]
-const LOG_LEVEL: &str = "warn";
+const LOG_LEVEL: &str = "info";
 
 struct AppState {
     tree: HashMapSearchTree,
@@ -183,7 +183,6 @@ struct Args {
     port: u16,
     #[arg(short, long, default_value_t = 1)]
     workers: usize,
-    // #[arg(long, default_value_t = 536_870_912)]
     #[arg(long, default_value_t = 16_777_216, help = "The request size limit")]
     limit: usize,
 }
@@ -192,9 +191,13 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or(LOG_LEVEL));
+    let accept_all = |_| true;
+    let json_config = web::JsonConfig::default()
+        .content_type_required(false)
+        .content_type(accept_all)
+        .limit(args.limit);
 
-    let json_config = web::JsonConfig::default().limit(args.limit);
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or(LOG_LEVEL));
 
     let state: Arc<AppState> = Arc::new(AppState {
         tree: parse_args_and_build_tree(&args.config)?,
@@ -206,9 +209,11 @@ async fn main() -> anyhow::Result<()> {
             .app_data(data.clone())
             .wrap(actix_web::middleware::Logger::default())
             .wrap(actix_web::middleware::Compress::default())
-            .wrap(actix_web::middleware::DefaultHeaders::default())
+            .wrap(
+                actix_web::middleware::DefaultHeaders::default()
+                    .add(("Content-Type", "application/json")),
+            )
             .app_data(json_config.clone())
-            // .service(web::scope("").wrap(error_handlers()))
             .service(
                 web::resource("/v1/communication_layer")
                     .route(web::get().to(v1_communication_layer)),

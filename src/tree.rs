@@ -339,40 +339,57 @@ impl HashMapSearchTree {
                     ResultSelection::All => {
                         let mut returns = Vec::new();
                         for result in results {
-                            let end = offsets[result.0.len() - 1].1;
-                            returns.push((result.0.join(" "), result.1.clone(), start, end));
+                            let end = offsets[result.search_terms.len() - 1].1;
+                            returns.push((
+                                result.get_search_term_string(),
+                                result.get_search_results(),
+                                start,
+                                end,
+                            ));
                         }
                         returns
                     }
                     ResultSelection::Last => {
                         let result = results.last().unwrap();
-                        let end = offsets[result.0.len() - 1].1;
-                        vec![(result.0.join(" "), result.1.clone(), start, end)]
+                        let end = offsets[result.search_terms.len() - 1].1;
+                        vec![(
+                            result.get_search_term_string(),
+                            result.get_search_results(),
+                            start,
+                            end,
+                        )]
                     }
                     ResultSelection::LastPreferFull => {
                         let result = results.last().unwrap();
-                        let end = offsets[result.0.len() - 1].1;
+                        let end = offsets[result.search_terms.len() - 1].1;
                         if result
-                            .1
+                            .search_results
                             .iter()
                             .any(|mtch| mtch.match_type == MatchType::Full)
                         {
-                            let mut mtches = HashSet::new();
-                            mtches.extend(result.1.iter().filter_map(|mtch| {
-                                if mtch.match_type == MatchType::Full {
-                                    Some(mtch.clone())
-                                } else {
-                                    None
-                                }
-                            }));
-                            return vec![(result.0.join(" "), mtches, start, end)];
+                            let mut mtches = Vec::new();
+                            mtches.extend(result.get_search_results().into_iter().filter_map(
+                                |mtch| {
+                                    if mtch.match_type == MatchType::Full {
+                                        Some(mtch)
+                                    } else {
+                                        None
+                                    }
+                                },
+                            ));
+                            return vec![(result.get_search_term_string(), mtches, start, end)];
                         }
-                        vec![(result.0.join(" "), result.1.clone(), start, end)]
+                        vec![(
+                            result.get_search_term_string(),
+                            result.get_search_results(),
+                            start,
+                            end,
+                        )]
                     }
                 }
             })
             .flatten()
-            .map(|(s, mtches, a, b)| (s, mtches.into_iter().sorted().collect::<Vec<Match>>(), a, b))
+            // .map(|(s, mtches, a, b)| (s, mtches.into_iter().sorted().collect::<Vec<&Match>>(), a, b))
             .collect::<Vec<(String, Vec<Match>, usize, usize)>>();
 
         // results.dedup_by(|b, a| b.2 <= a.3);
@@ -382,15 +399,15 @@ impl HashMapSearchTree {
         results
     }
 
-    pub(crate) fn traverse(
-        &self,
-        window: &Vec<String>,
-    ) -> Result<Vec<(Vec<String>, &HashSet<Match>)>, String> {
+    pub(crate) fn traverse(&self, window: &[String]) -> Result<Vec<TraversalResult>, String> {
         let mut results = Vec::new();
         for i in 0..window.len() {
-            let sub_window = window[0..=i].to_vec();
-            if let Some(result) = self.search_map.get(&sub_window) {
-                results.push((sub_window, result));
+            let search_terms = window[0..=i].to_vec();
+            if let Some(search_results) = self.search_map.get(&search_terms) {
+                results.push(TraversalResult {
+                    search_terms,
+                    search_results,
+                });
             }
         }
         if results.is_empty() {
@@ -398,6 +415,20 @@ impl HashMapSearchTree {
         } else {
             Ok(results)
         }
+    }
+}
+
+pub struct TraversalResult<'a> {
+    search_terms: Vec<String>,
+    search_results: &'a HashSet<Match>,
+}
+
+impl TraversalResult<'_> {
+    fn get_search_term_string(&self) -> String {
+        self.search_terms.join(" ")
+    }
+    fn get_search_results(&self) -> Vec<Match> {
+        self.search_results.iter().cloned().collect()
     }
 }
 

@@ -5,11 +5,10 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use indicatif::{ProgressBar, ProgressStyle};
-use itertools::Itertools;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::util::{create_skip_grams, get_files, parse_files, CorpusFormat, Tokenizer};
+use crate::util::{create_skip_grams, get_files, parse_files, CorpusFormat, Tokenizer, TokensAndOffsets};
 
 #[derive(Debug, Serialize, Deserialize)] // FIXME
 pub enum ResultSelection {
@@ -150,11 +149,11 @@ impl HashMapSearchTree {
         generate_abbrv: bool,
     ) {
         let search_terms: Vec<&str> = entries.iter().map(|line| line.0.as_str()).collect();
-        let segmented: Vec<(Vec<String>, Vec<(usize, usize)>)> =
+        let segmented: Vec<TokensAndOffsets> =
             self.tokenize_batch(search_terms.as_slice());
         let entries: Vec<EntryType> = segmented
             .into_iter()
-            .zip(entries.into_iter())
+            .zip(entries)
             .map(|(segments, (search_term, label))| {
                 (segments.0, Arc::from(search_term), Arc::from(label))
             })
@@ -297,16 +296,16 @@ impl HashMapSearchTree {
         pb.finish_with_message(format!("Generated {} abbreviated entries", counter));
     }
 
-    pub(crate) fn tokenize(&self, input: &str) -> (Vec<String>, Vec<(usize, usize)>) {
+    pub(crate) fn tokenize(&self, input: &str) -> TokensAndOffsets {
         self.tokenizer.tokenize(input)
     }
 
-    pub(crate) fn tokenize_batch(&self, input: &[&str]) -> Vec<(Vec<String>, Vec<(usize, usize)>)> {
+    pub(crate) fn tokenize_batch(&self, input: &[&str]) -> Vec<TokensAndOffsets> {
         self.tokenizer.encode_batch(input)
     }
 
     pub fn search<'a>(
-        &self,
+        &'a self,
         text: &'a str,
         max_len: Option<usize>,
         result_selection: Option<&ResultSelection>,
@@ -323,7 +322,7 @@ impl HashMapSearchTree {
 
         let mut results = slices
             .par_windows(max_len)
-            .map(|slice| self.traverse(&slice.to_vec()))
+            .map(|slice| self.traverse(slice))
             .zip(offsets.par_windows(max_len))
             .filter_map(|(result, offsets)| result.map_or(None, |result| Some((result, offsets))))
             .filter_map(|(result, offsets)| {

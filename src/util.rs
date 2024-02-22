@@ -160,7 +160,7 @@ pub fn read_lines(filename: &str) -> Vec<String> {
         }
         _ => reader
             .lines()
-            .filter_map(|line| line.ok())
+            .map_while(Result::ok)
             .collect::<Vec<String>>(),
     }
 }
@@ -241,8 +241,10 @@ pub fn get_files(root_path: &str) -> Vec<String> {
 
 pub const SPLIT_PATTERN: &[char; 10] = &[' ', '.', ',', ':', ';', '-', '_', '"', '(', ')'];
 
+pub type TokensAndOffsets = (Vec<String>, Vec<(usize, usize)>);
+
 #[must_use]
-pub fn split_with_indices(s: &str) -> (Vec<String>, Vec<(usize, usize)>) {
+pub fn split_with_indices(s: &str) -> TokensAndOffsets {
     let indices = s.match_indices(SPLIT_PATTERN).collect::<Vec<_>>();
 
     let mut last = 0;
@@ -317,7 +319,7 @@ pub struct Tokenizer {
 }
 
 impl Tokenizer {
-    pub fn tokenize(&self, string: &str) -> (Vec<String>, Vec<(usize, usize)>) {
+    pub fn tokenize(&self, string: &str) -> TokensAndOffsets {
         let mut string = PreTokenizedString::from(string);
         string
             .normalize(|s| self.normalizer.normalize(s))
@@ -334,7 +336,7 @@ impl Tokenizer {
         (tokens, offsets)
     }
 
-    pub fn encode_batch(&self, inputs: &[&str]) -> Vec<(Vec<String>, Vec<(usize, usize)>)> {
+    pub fn encode_batch(&self, inputs: &[&str]) -> Vec<TokensAndOffsets> {
         let pb = ProgressBar::new(inputs.len() as u64);
         pb.set_style(
             ProgressStyle::with_template("Tokenizing Inputs {bar:40} {pos}/{len} {msg}").unwrap(),
@@ -346,7 +348,7 @@ impl Tokenizer {
                 pb.inc(1);
                 tokenized
             })
-            .collect::<Vec<(Vec<String>, Vec<(usize, usize)>)>>();
+            .collect::<Vec<TokensAndOffsets>>();
         pb.finish_with_message("Done");
         encodings
     }
@@ -357,11 +359,11 @@ impl Default for Tokenizer {
         Tokenizer {
             normalizer: NormalizerWrapper::Sequence(NormalizerSequence::new(vec![
                 NormalizerWrapper::Lowercase(Lowercase),
-                NormalizerWrapper::NFKC(NFKC::default()),
+                NormalizerWrapper::NFKC(NFKC),
             ])),
             pre_tokenizer: PreTokenizerWrapper::Sequence(PreTokenizerSequence::new(vec![
                 PreTokenizerWrapper::Punctuation(Punctuation::new(SplitDelimiterBehavior::Removed)),
-                PreTokenizerWrapper::Whitespace(Whitespace::default()),
+                PreTokenizerWrapper::Whitespace(Whitespace),
             ])),
         }
     }

@@ -45,7 +45,6 @@ pub async fn process_form(
     form: web::Form<FormData>,
     state: web::Data<Arc<AppState>>,
 ) -> HttpResponse {
-    println!("{:?}", &form);
     let results: &Vec<(String, Vec<crate::tree::Match>, usize, usize)> =
         &state
             .tree

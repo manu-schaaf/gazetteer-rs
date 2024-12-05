@@ -1,84 +1,31 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use clap::{arg, Parser};
-
-use actix_files::NamedFile;
-use actix_web::{web, App, HttpResponse, HttpServer, Result};
+use serde::{Deserialize, Serialize};
 
 use anyhow::Context;
+use clap::{arg, Parser};
 
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use actix_files as fs;
+use actix_web::{web, App, HttpServer};
 
-use gazetteer::tree::{HashMapSearchTree, ResultSelection};
-use gazetteer::util::{parse_optional, read_lines, CorpusFormat};
+use gazetteer::api;
+use gazetteer::tree::HashMapSearchTree;
+use gazetteer::util::{read_lines, CorpusFormat};
+use gazetteer::AppState;
+
+#[cfg(feature = "gui")]
+use gazetteer::gui;
 
 const DEFAULT_GENERATE_ABBRV: bool = false;
 const DEFAULT_GENERATE_SKIP_GRAMS: bool = false;
 const DEFAULT_SKIP_GRAM_MAX_SKIPS: i32 = 2;
 const DEFAULT_SKIP_GRAM_MIN_LENGTH: i32 = 2;
 
-#[cfg(debug)]
+#[cfg(debug_assertions)]
 const LOG_LEVEL: &str = "debug";
-#[cfg(not(debug))]
+#[cfg(not(debug_assertions))]
 const LOG_LEVEL: &str = "info";
-
-struct AppState {
-    tree: HashMapSearchTree,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ProcessRequest<'r> {
-    text: Cow<'r, str>,
-    max_len: Option<String>,
-    result_selection: Option<ResultSelection>,
-}
-
-async fn v1_communication_layer() -> Result<NamedFile> {
-    Ok(NamedFile::open_async("communication_layer.lua").await?)
-}
-
-async fn v1_process(
-    request: web::Json<ProcessRequest<'_>>,
-    state: web::Data<Arc<AppState>>,
-) -> HttpResponse {
-    let results = state.get_ref().tree.search(
-        &request.text,
-        parse_optional::<usize>(&request.max_len),
-        Option::from(&request.result_selection),
-    );
-    let results: Vec<Value> = results
-        .into_iter()
-        .map(|(string, mtches, begin, end)| {
-            let mut value: HashMap<(String, String), Vec<String>> = HashMap::new();
-            for mtch in mtches {
-                value
-                    .entry((mtch.match_string.to_string(), mtch.match_type.to_string()))
-                    .and_modify(|e| e.push(mtch.match_label.to_string()))
-                    .or_insert_with(|| vec![mtch.match_label.to_string()]);
-            }
-
-            let ((match_strings, match_types), match_labels): (
-                (Vec<String>, Vec<String>),
-                Vec<String>,
-            ) = value
-                .into_iter()
-                .map(|((s, t), l)| ((s, t), l.join(" ")))
-                .unzip();
-            json!({
-                "string": string,
-                "match_labels": match_labels.join(" | "),
-                "match_types": match_types.join(" | "),
-                "match_strings": match_strings.join(" | "),
-                "begin": begin,
-                "end": end,
-            })
-        })
-        .collect::<Vec<Value>>();
-    HttpResponse::Ok().json(results)
-}
 
 #[derive(Serialize, Deserialize)]
 struct Config {
@@ -205,20 +152,39 @@ async fn main() -> anyhow::Result<()> {
     let data: web::Data<Arc<AppState>> = web::Data::new(state);
 
     HttpServer::new(move || {
-        App::new()
+        let app = App::new()
             .app_data(data.clone())
             .wrap(actix_web::middleware::Logger::default())
             .wrap(actix_web::middleware::Compress::default())
-            .wrap(
-                actix_web::middleware::DefaultHeaders::default()
-                    .add(("Content-Type", "application/json")),
-            )
             .app_data(json_config.clone())
             .service(
-                web::resource("/v1/communication_layer")
-                    .route(web::get().to(v1_communication_layer)),
+                web::resource("/v1/process")
+                    .wrap(
+                        actix_web::middleware::DefaultHeaders::default()
+                            .add(("Content-Type", "application/json")),
+                    )
+                    .route(web::post().to(api::v1_process)),
             )
-            .service(web::resource("/v1/process").route(web::post().to(v1_process)))
+            .service(
+                web::resource("/v1/communication_layer")
+                    .route(web::get().to(api::v1_communication_layer)),
+            );
+
+        #[cfg(feature = "gui")]
+        let app = {
+            app.service(
+                fs::Files::new("/static", "src/static/")
+                    .show_files_listing()
+                    .use_last_modified(true),
+            )
+            .service(
+                web::resource("/")
+                    .route(web::get().to(gui::index))
+                    .route(web::post().to(gui::process_form)),
+            )
+        };
+
+        app
     })
     .bind((args.address, args.port))?
     .workers(args.workers)

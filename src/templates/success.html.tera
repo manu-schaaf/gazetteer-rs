@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Rocket Form Example</title>
+    <link rel="stylesheet" href="/static/chota.min.css">
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px 10px;
+        }
+        ul.result-list {
+            list-style-type: none;
+            padding: 0 0 0 1em;
+            margin: 0 0 6pt 0;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>BIOfid Gazetteer</h1>
+    <h2>Results</h2>
+    {% for result in results -%}
+        {% set matches = result[1] %}
+        <div class="card">
+            <header>
+                <span class="tag">{{ result[0] }} [<code>{{ result[2] }}</code>, <code>{{ result[3] }}</code>]</span>
+            </header>
+            {% if matches | length > 2 %}
+                <details>
+                    <summary>
+                        Show all {{ matches | length }} Matches
+                    </summary>
+                    <div class="row">
+                        <div class="col-2 .text-center"><strong>Match Type</strong></div>
+                        <div class="col .text-center"><strong>Entity (URI)</strong></div>
+                    </div>
+                    {% for match in matches | sort(attribute="match_label") -%}
+                        <div class="row">
+                            <div class="col-2">{{ match.match_type }}</div>
+                            <div class="col .text-right"><a href="{{ match.match_label }}">{{ match.match_string }} ({{ match.match_label }})</a></div>
+                        </div>
+                    {%- endfor %}
+                </details>
+            {% else %}
+                <div class="row">
+                    <div class="col-2 .text-center"><strong>Match Type</strong></div>
+                    <div class="col .text-center"><strong>Entity (URI)</strong></div>
+                </div>
+                {% for match in matches | sort(attribute="match_label") -%}
+                    <div class="row">
+                        <div class="col-2">{{ match.match_type }}</div>
+                        <div class="col .text-right"><a href="{{ match.match_label }}">{{ match.match_string }} ({{ match.match_label }})</a></div>
+                    </div>
+                {%- endfor %}
+            {% endif %}
+        </div>
+    {%- endfor %}
+
+    <a href="/">&lt; Submit Another</a>
+</div>
+</body>
+</html>

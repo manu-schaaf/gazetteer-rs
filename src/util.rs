@@ -206,22 +206,25 @@ pub fn read_csv(filename: &str, format: &CorpusFormat) -> anyhow::Result<Vec<(St
         .from_reader(buf_reader)
         .records()
         .filter_map(std::result::Result::ok)
-        .filter(|row| !row.is_empty())
-        .map(|row| {
-            format.label_format_string.as_ref().map_or_else(
-                || {
-                    (
-                        String::from(&row[search_term_column_idx]),
-                        String::from(&row[label_column_idx]),
-                    )
-                },
-                |format_string| {
-                    (
-                        String::from(&row[search_term_column_idx]),
-                        format_string.replace(&label_format_pattern, &row[label_column_idx]),
-                    )
-                },
-            )
+        .filter_map(|row| {
+            if row.is_empty() {
+                return None;
+            }
+            match (row.get(search_term_column_idx), row.get(label_column_idx)) {
+                (None, None) | (None, _) | (_, None) => None,
+                (Some(search_term), Some(label)) => {
+                    Some((String::from(search_term), String::from(label)))
+                }
+            }
+        })
+        .map(|(search_term, label)| {
+            if let Some(format_string) = format.label_format_string.as_ref() {
+                return (
+                    search_term,
+                    format_string.replace(&label_format_pattern, &label),
+                );
+            }
+            (search_term, label)
         })
         .collect::<Vec<(String, String)>>();
     Ok(reader)

@@ -5,7 +5,7 @@ on:
     tags:
       - "v*.*.*"
   pull_request:
-    tags: 
+    tags:
       - "v*.*.*"
   workflow_dispatch:
 
@@ -26,18 +26,25 @@ jobs:
           toolchain: nightly
           default: true
           override: true
-        
-      - name: Build binary
-        run: cargo build --release
-        
-      - name: Archive
+
+      - name: Build binary w/o GUI
+        run: cargo build --release --no-default-features
+
+      - name: Archive w/o GUI
         run: cp target/release/gazetteer . && zip -r gazetteer-rs.${{ github.ref_name }}-bin.zip resources/ config.toml gazetteer LICENSE
-      
+
+      - name: Build binary w/GUI
+        run: cargo build --release --features gui
+
+      - name: Archive wGUI
+        run: cp target/release/gazetteer . && zip -r gazetteer-rs.${{ github.ref_name }}-gui-bin.zip resources/ config.toml gazetteer LICENSE
+
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             gazetteer-rs.${{ github.ref_name }}-bin.zip
+            gazetteer-rs.${{ github.ref_name }}-gui-bin.zip
             gazetteer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -8,7 +8,9 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::util::{create_skip_grams, get_files, parse_files, CorpusFormat, Tokenizer, TokensAndOffsets};
+use crate::util::{
+    create_skip_grams, get_files, parse_files, CorpusFormat, Tokenizer, TokensAndOffsets,
+};
 
 #[derive(Debug, Serialize, Deserialize)] // FIXME
 pub enum ResultSelection {
@@ -109,6 +111,7 @@ pub struct HashMapSearchTree {
 type EntryType = (Vec<String>, Arc<String>, Arc<String>);
 
 impl HashMapSearchTree {
+    #[allow(clippy::too_many_arguments)]
     pub fn load_file(
         &mut self,
         root_path: &str,
@@ -149,8 +152,7 @@ impl HashMapSearchTree {
         generate_abbrv: bool,
     ) {
         let search_terms: Vec<&str> = entries.iter().map(|line| line.0.as_str()).collect();
-        let segmented: Vec<TokensAndOffsets> =
-            self.tokenize_batch(search_terms.as_slice());
+        let segmented: Vec<TokensAndOffsets> = self.tokenize_batch(search_terms.as_slice());
         let entries: Vec<EntryType> = segmented
             .into_iter()
             .zip(entries)

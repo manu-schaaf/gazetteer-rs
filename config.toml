@@ -4,15 +4,15 @@ generate_skip_grams = false
 
 [corpora]
 [corpora.example]
-path = "resources/example.csv"
+path = "resources/example_gbif.tsv"
 generate_abbrv = true
 generate_skip_grams = true
 skip_gram_min_length = 2
 skip_gram_max_skips = 2
-[corpora.example.format]
-delimiter = ";"
 
-[corpora.compresed]
-path = "resources/example.tsv.gz"
+[corpora.compressed]
+path = "resources/example.csv.gz"
 generate_abbrv = true
 generate_skip_grams = true
+[corpora.compressed.format]
+delimiter = ";"

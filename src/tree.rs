@@ -121,6 +121,8 @@ impl HashMapSearchTree {
         skip_gram_max_skips: i32,
         filter_list: &Option<Vec<String>>,
         generate_abbrv: bool,
+        abbrv_max_index: i32,
+        abbrv_min_suffix_length: i32,
         format: &Option<CorpusFormat>,
     ) {
         let files: Vec<String> = get_files(root_path);
@@ -141,6 +143,8 @@ impl HashMapSearchTree {
             skip_gram_min_length,
             skip_gram_max_skips,
             generate_abbrv,
+            abbrv_max_index,
+            abbrv_min_suffix_length,
         );
     }
 
@@ -151,6 +155,8 @@ impl HashMapSearchTree {
         skip_gram_min_length: i32,
         skip_gram_max_skips: i32,
         generate_abbrv: bool,
+        abbrv_max_index: i32,
+        abbrv_min_suffix_length: i32,
     ) {
         let search_terms: Vec<&str> = entries.iter().map(|line| line.0.as_str()).collect();
         let segmented: Vec<TokensAndOffsets> = self.tokenize_batch(search_terms.as_slice());
@@ -169,7 +175,7 @@ impl HashMapSearchTree {
         }
 
         if generate_abbrv {
-            self.generate_abbreviations(&entries);
+            self.generate_abbreviations(&entries, abbrv_max_index, abbrv_min_suffix_length);
         }
     }
 
@@ -259,7 +265,12 @@ impl HashMapSearchTree {
         pb.finish_with_message(format!("Generated {counter} skip-grams"));
     }
 
-    pub(crate) fn generate_abbreviations(&mut self, lines: &[EntryType]) {
+    pub(crate) fn generate_abbreviations(
+        &mut self,
+        lines: &[EntryType],
+        abbrv_max_index: i32,
+        abbrv_min_suffix_length: i32,
+    ) {
         let filtered = lines
             .iter()
             .filter(|(segments, _, _)| segments.len() > 1)
@@ -274,11 +285,28 @@ impl HashMapSearchTree {
         let mut counter: i64 = 0;
         let mut abbrv: Vec<String> = Vec::new();
         for (segments, search_term, label) in filtered {
-            for i in 0..(segments.len() - 1) {
+            // set the maximum abbreviated segment index to the last segment
+            // UNLESS the user has specified a maximum index (abbrv_max_index > 0)
+            let max_index = segments.len() - 1;
+            let max_index = if abbrv_max_index < 0 || abbrv_max_index > (max_index as i32) {
+                max_index
+            } else {
+                abbrv_max_index as usize
+            };
+            for i in 0..=max_index {
+                // check if the remaining segments after the abbreviated segment are long enough
+                // i.e., "Thing A" -> "T A"
+                let suffix_length: usize = segments[(i + 1)..].iter().map(String::len).sum();
+                if abbrv_min_suffix_length > 0 && suffix_length < (abbrv_min_suffix_length as usize)
+                {
+                    continue;
+                }
+
                 abbrv.clear();
                 let target_segment = String::from(&segments[i]);
                 let abbreviated_segment = target_segment.chars().next().unwrap().to_string();
 
+                // if we are not abbreviating the first segment, add the prefix segments in any case
                 if i > 0 {
                     abbrv.extend_from_slice(&segments[0..i]);
                 }
@@ -451,7 +479,7 @@ mod test {
             (an_example_phrase.clone(), "uri:phrase".to_string()),
             (example.clone(), "uri:single".to_string()),
         ];
-        tree.load(entries.clone(), false, 0, 0, false);
+        tree.load(entries.clone(), false, 0, 0, false, 0, 3);
         let tree = tree;
 
         println!("{:?}", tree.search_map);
@@ -510,7 +538,7 @@ mod test {
             ("An example phrase".to_string(), "uri:phrase".to_string()),
             ("Another example A".to_string(), "uri:other".to_string()),
         ];
-        tree.load(entries.clone(), true, 2, 2, false);
+        tree.load(entries.clone(), true, 2, 2, false, 0, 3);
         let tree = tree;
 
         println!("{:?}", tree.search_map);

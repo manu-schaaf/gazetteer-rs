@@ -18,6 +18,8 @@ use gazetteer::AppState;
 use gazetteer::gui;
 
 const DEFAULT_GENERATE_ABBRV: bool = false;
+const DEFAULT_ABBRV_MAX_INDEX: i32 = 1;
+const DEFAULT_ABBRV_MIN_SUFFIX_LENGTH: i32 = 3;
 const DEFAULT_GENERATE_SKIP_GRAMS: bool = false;
 const DEFAULT_SKIP_GRAM_MAX_SKIPS: i32 = 2;
 const DEFAULT_SKIP_GRAM_MIN_LENGTH: i32 = 2;
@@ -31,6 +33,8 @@ const LOG_LEVEL: &str = "info";
 struct Config {
     filter_path: Option<String>,
     generate_abbrv: Option<bool>,
+    abbrv_max_index: Option<i32>,
+    abbrv_min_suffix_length: Option<i32>,
     generate_skip_grams: Option<bool>,
     skip_gram_min_length: Option<i32>,
     skip_gram_max_skips: Option<i32>,
@@ -42,6 +46,8 @@ struct Corpus {
     path: String,
     filter_path: Option<String>,
     generate_abbrv: Option<bool>,
+    abbrv_max_index: Option<i32>,
+    abbrv_min_suffix_length: Option<i32>,
     generate_skip_grams: Option<bool>,
     skip_gram_min_length: Option<i32>,
     skip_gram_max_skips: Option<i32>,
@@ -58,10 +64,18 @@ fn parse_args_and_build_tree(config_path: &str) -> anyhow::Result<HashMapSearchT
     let default_filter_list = load_filter_list(config.filter_path);
 
     for corpus in config.corpora.values() {
-        let path: &String = &corpus.path;
+        let root_path: &String = &corpus.path;
         let generate_abbrv = corpus
             .generate_abbrv
             .unwrap_or_else(|| config.generate_abbrv.unwrap_or(DEFAULT_GENERATE_ABBRV));
+        let abbrv_max_index = corpus
+            .abbrv_max_index
+            .unwrap_or_else(|| config.abbrv_max_index.unwrap_or(DEFAULT_ABBRV_MAX_INDEX));
+        let abbrv_min_suffix_length = corpus.abbrv_min_suffix_length.unwrap_or_else(|| {
+            config
+                .abbrv_min_suffix_length
+                .unwrap_or(DEFAULT_ABBRV_MIN_SUFFIX_LENGTH)
+        });
         let generate_skip_grams = corpus.generate_skip_grams.unwrap_or_else(|| {
             config
                 .generate_skip_grams
@@ -86,27 +100,34 @@ fn parse_args_and_build_tree(config_path: &str) -> anyhow::Result<HashMapSearchT
                 Option::from(lines)
             };
             tree.load_file(
-                path,
+                root_path,
                 generate_skip_grams,
                 skip_gram_min_length,
                 skip_gram_max_skips,
                 &filter_list,
                 generate_abbrv,
+                abbrv_max_index,
+                abbrv_min_suffix_length,
                 format,
             );
         } else {
             tree.load_file(
-                path,
+                root_path,
                 generate_skip_grams,
                 skip_gram_min_length,
                 skip_gram_max_skips,
                 &default_filter_list,
                 generate_abbrv,
+                abbrv_max_index,
+                abbrv_min_suffix_length,
                 format,
             );
         }
     }
-    println!("Finished loading gazetteer.");
+    println!(
+        "Finished loading gazetteer with {} entries",
+        tree.search_map.len()
+    );
     Ok(tree)
 }
 

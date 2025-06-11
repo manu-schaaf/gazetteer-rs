@@ -6,6 +6,8 @@ generate_skip_grams = false
 [corpora.example]
 path = "resources/example_gbif.tsv"
 generate_abbrv = true
+abbrv_max_index = 0
+abbrv_min_suffix_length = 3
 generate_skip_grams = true
 skip_gram_min_length = 2
 skip_gram_max_skips = 2
@@ -13,6 +15,8 @@ skip_gram_max_skips = 2
 [corpora.compressed]
 path = "resources/example.csv.gz"
 generate_abbrv = true
+abbrv_max_index = 0
+abbrv_min_suffix_length = 3
 generate_skip_grams = true
 [corpora.compressed.format]
 delimiter = ";"

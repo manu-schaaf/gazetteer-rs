@@ -5,6 +5,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use indicatif::{ProgressBar, ProgressStyle};
+use itertools::Itertools;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -429,7 +430,7 @@ impl TraversalResult<'_> {
         self.search_terms.join(" ")
     }
     fn get_search_results(&self) -> Vec<Match> {
-        self.search_results.iter().cloned().collect()
+        self.search_results.iter().cloned().sorted().collect()
     }
 }
 
